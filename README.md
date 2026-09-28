@@ -26,7 +26,7 @@ OptiSteel Pro puede utilizarse de tres formas distintas según las necesidades d
 ### 1. Web App en Streamlit (Recomendado — Sin instalación)
 La alternativa más rápida para consultar desde cualquier navegador, computador, tablet o smartphone (iOS / Android) sin configurar entornos de programación:
 
-* **Enlace de acceso directo:** [optisteel.streamlit.app](https://optisteel.streamlit.app) *(reemplaza con tu URL real)*
+* **Enlace de acceso directo:** [optisteel.streamlit.app](https://optisteel.streamlit.app)
 * **Uso en dispositivos móviles (PWA):**
   1. Abre el enlace en Safari (iOS) o Chrome (Android).
   2. Toca el botón **Compartir** y selecciona **"Agregar al inicio"**.
@@ -46,7 +46,7 @@ Para usar la interfaz gráfica nativa en Windows sin tener Python instalado:
 
 Para desarrolladores o estudiantes que deseen modificar el motor de cálculo, ampliar el catálogo o ejecutar el proyecto desde la terminal:
 
-#### Paso A: Clonar el repositorio y configurar el entorno
+#### Procedimiento:
 ```bash
 # 1. Clonar el repositorio
 git clone [https://github.com/tu-usuario/optisteel-pro.git](https://github.com/tu-usuario/optisteel-pro.git)
@@ -129,7 +129,7 @@ El motor de cálculo ejecuta las siguientes etapas para cada perfil viable:
 ## 📂 Estructura del Repositorio
 
 ```text
-optisteel-pro/
+optisteel/
 ├── LICENSE                        # Licencia de código abierto MIT
 ├── README.md                      # Documentación completa y técnica del proyecto
 ├── app.py                         # Aplicación Web interactiva (Streamlit)
