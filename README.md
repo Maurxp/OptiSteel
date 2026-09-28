@@ -74,7 +74,7 @@ El motor de cálculo ejecuta las siguientes etapas para cada perfil viable:
 ## 📂 Estructura del Repositorio
 
 ```text
-optisteel-pro/
+OptiSteel-web/
 ├── app.py                         # Aplicación Web (Streamlit)
 ├── app_desktop.py                 # Aplicación de Escritorio con GUI (Tkinter)
 ├── perfiles_estructurales.csv     # Base de datos de perfiles (Pytel-Singer Tabla B-2)
