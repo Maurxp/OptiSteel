@@ -22,7 +22,6 @@ El sistema desacopla el catálogo de perfiles mediante un archivo externo `.csv`
 
 OptiSteel Pro puede utilizarse de tres formas distintas según las necesidades del usuario:
 
----
 
 ### 1. Web App en Streamlit (Recomendado — Sin instalación)
 La alternativa más rápida para consultar desde cualquier navegador, computador, tablet o smartphone (iOS / Android) sin configurar entornos de programación:
@@ -33,7 +32,6 @@ La alternativa más rápida para consultar desde cualquier navegador, computador
   2. Toca el botón **Compartir** y selecciona **"Agregar al inicio"**.
   3. La herramienta se ejecutará a pantalla completa como una aplicación nativa sin barras de navegación.
 
----
 
 ### 2. Ejecutable Standalone para Windows (`.exe` en Releases)
 Para usar la interfaz gráfica nativa en Windows sin tener Python instalado:
@@ -43,7 +41,6 @@ Para usar la interfaz gráfica nativa en Windows sin tener Python instalado:
 3. Haz doble clic sobre el archivo descargado para iniciar el programa.
 > **Nota:** El ejecutable es completamente portable e incluye el catálogo de perfiles y recursos empaquetados en su interior; no requiere instalación previa ni dependencias externas.
 
----
 
 ### 3. Ejecución y Compilación en Local (Código Fuente)
 
