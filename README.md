@@ -12,7 +12,7 @@
 
 ## 📌 Descripción
 
-**OptiSteel Pro** es una herramienta de ingeniería computacional diseñada para resolver de manera óptima el dimensionamiento elástico de vigas simplemente apoyadas sometidas a flexión pura, cortante y restricciones normativas de flecha (deflexión).
+**OptiSteel Pro** es una herramienta de ingeniería civil diseñada para resolver de manera óptima el dimensionamiento elástico de vigas simplemente apoyadas sometidas a flexión pura, cortante y restricciones normativas de flecha (deflexión).
 
 El sistema desacopla el catálogo de perfiles mediante un archivo externo `.csv` y analiza iterativamente perfiles comerciales tipo **W (Ala Ancha)**, **S (Vigas I estándar)** y **C (Canales)**, determinando la solución más económica (menor masa por metro lineal) considerando de forma automática el incremento de solicitaciones provocado por el **peso propio** del miembro estructural.
 
