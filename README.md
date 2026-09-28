@@ -39,7 +39,7 @@ El motor de cálculo ejecuta las siguientes etapas para cada perfil viable:
 
 1. **Carga gravitacional por peso propio:**
    $$w_{pp} = \frac{m \cdot g}{1000} \quad [\text{kN/m}]$$
-   *(con $g = 9.81\text{ m/s}^2$ y masa lineal $m$ en $\text{kg/m}$)*
+   con $g = 9.81\text{ m/s}^2$ y masa lineal $m$ en $\text{kg/m}$
 
 2. **Solicitaciones acumuladas críticas:**
    $$M_{\text{total}} = M_{\text{ext}} + \frac{w_{pp} \cdot L^2}{8} \quad [\text{kN}\cdot\text{m}]$$
