@@ -49,8 +49,8 @@ Para desarrolladores o estudiantes que deseen modificar el motor de cálculo, am
 #### Procedimiento:
 ```bash
 # 1. Clonar el repositorio
-git clone [https://github.com/tu-usuario/optisteel-pro.git](https://github.com/tu-usuario/optisteel-pro.git)
-cd optisteel-pro
+git clone https://github.com/Maurxp/OptiSteel.git
+cd OptiSteel
 
 # 2. Crear y activar entorno virtual
 python -m venv venv
