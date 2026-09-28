@@ -74,12 +74,12 @@ El motor de cálculo ejecuta las siguientes etapas para cada perfil viable:
 ## 📂 Estructura del Repositorio
 
 ```text
-OptiSteel-web/
-├── app.py                         # Aplicación Web (Streamlit)
-├── app_desktop.py                 # Aplicación de Escritorio con GUI (Tkinter)
+optisteel-pro/
+├── LICENSE                        # Licencia de código abierto MIT
+├── README.md                      # Documentación completa y técnica del proyecto
+├── app.py                         # Aplicación Web interactiva (Streamlit)
+├── app_desktop.py                 # Aplicación de escritorio nativa (Tkinter)
+├── icono.ico                      # Icono empaquetable para Windows (.exe)
+├── icono.png                      # Icono de alta resolución para Web y barra de tareas
 ├── perfiles_estructurales.csv     # Base de datos de perfiles (Pytel-Singer Tabla B-2)
-├── requirements.txt               # Dependencias de Python
-├── icono.ico                      # Icono de aplicación para Windows (.exe)
-├── icono.png                      # Icono en alta resolución para Web / Tkinter
-├── LICENSE                        # Licencia MIT
-└── README.md                      # Documentación del proyecto
+└── requirements.txt               # Dependencias de librerías Python
