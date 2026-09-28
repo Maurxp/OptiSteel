@@ -18,6 +18,64 @@ El sistema desacopla el catálogo de perfiles mediante un archivo externo `.csv`
 
 ---
 
+## 🖥️ Modos de Uso y Acceso
+
+OptiSteel Pro puede utilizarse de tres formas distintas según las necesidades del usuario:
+
+---
+
+### 1. Web App en Streamlit (Recomendado — Sin instalación)
+La alternativa más rápida para consultar desde cualquier navegador, computador, tablet o smartphone (iOS / Android) sin configurar entornos de programación:
+
+* **Enlace de acceso directo:** [optisteel.streamlit.app](https://optisteel.streamlit.app) *(reemplaza con tu URL real)*
+* **Uso en dispositivos móviles (PWA):**
+  1. Abre el enlace en Safari (iOS) o Chrome (Android).
+  2. Toca el botón **Compartir** y selecciona **"Agregar al inicio"**.
+  3. La herramienta se ejecutará a pantalla completa como una aplicación nativa sin barras de navegación.
+
+---
+
+### 2. Ejecutable Standalone para Windows (`.exe` en Releases)
+Para usar la interfaz gráfica nativa en Windows sin tener Python instalado:
+
+1. Ve a la sección lateral derecha del repositorio: **[Releases](../../releases)**.
+2. Descarga la versión más reciente del archivo **`OptiSteel.exe`**.
+3. Haz doble clic sobre el archivo descargado para iniciar el programa.
+> **Nota:** El ejecutable es completamente portable e incluye el catálogo de perfiles y recursos empaquetados en su interior; no requiere instalación previa ni dependencias externas.
+
+---
+
+### 3. Ejecución y Compilación en Local (Código Fuente)
+
+Para desarrolladores o estudiantes que deseen modificar el motor de cálculo, ampliar el catálogo o ejecutar el proyecto desde la terminal:
+
+#### Paso A: Clonar el repositorio y configurar el entorno
+```bash
+# 1. Clonar el repositorio
+git clone [https://github.com/tu-usuario/optisteel-pro.git](https://github.com/tu-usuario/optisteel-pro.git)
+cd optisteel-pro
+
+# 2. Crear y activar entorno virtual
+python -m venv venv
+venv\Scripts\activate      # En Windows
+# source venv/bin/activate # En Linux / macOS
+
+# 3. Instalar librerías requeridas
+pip install -r requirements.txt
+
+# 4. Iniciar versión Web interactiva (Streamlit)
+streamlit run app.py
+
+# 5. O iniciar versión de Escritorio nativa (Tkinter)
+python app_desktop.py
+
+# 6. (Opcional) Compilar ejecutable .exe para Windows
+pip install pyinstaller
+pyinstaller --noconsole --onefile --icon="icono.ico" --add-data "perfiles_estructurales.csv;." --add-data "icono.ico;." --add-data "icono.png;." app_desktop.py
+```
+
+---
+
 ## ⚙️ Características Técnicas
 
 * **Filtrado Multi-Perfil:** Evalúa familias individuales (`W`, `S`, `C`) o ejecuta un barrido simultáneo (`TODOS`) para encontrar la sección transversal más eficiente del mercado.
