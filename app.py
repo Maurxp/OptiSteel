@@ -1,4 +1,5 @@
 import csv
+import html
 import os
 import re
 import pandas as pd
@@ -33,8 +34,13 @@ st.markdown(
 )
 
 
+RUTA_CATALOGO_DEFECTO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "perfiles_estructurales.csv"
+)
+
+
 @st.cache_data
-def cargar_catalogo(ruta="perfiles_estructurales.csv"):
+def cargar_catalogo(ruta=RUTA_CATALOGO_DEFECTO):
     if not os.path.exists(ruta):
         return []
     perfiles = []
@@ -190,11 +196,12 @@ else:
     optimo = candidatos[0]
 
     # Tarjeta de perfil ganador
+    perfil_escapado = html.escape(str(optimo["Perfil"]))
     st.markdown(
         f"""
         <div class="success-box">
             <h4 style="margin:0; color:#10b981;">PERFIL ÓPTIMO SELECCIONADO</h4>
-            <h1 style="margin:0; font-size:2.4rem; color:#ffffff;">{optimo['Perfil']}</h1>
+            <h1 style="margin:0; font-size:2.4rem; color:#ffffff;">{perfil_escapado}</h1>
         </div>
     """,
         unsafe_allow_html=True,

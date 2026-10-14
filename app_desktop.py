@@ -1,5 +1,6 @@
 import csv
 import ctypes
+import math
 import os
 import re
 import sys
@@ -14,7 +15,8 @@ def obtener_ruta_recurso(nombre_archivo):
     """Obtiene la ruta absoluta del archivo en ejecución normal o empaquetado por PyInstaller."""
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, nombre_archivo)
-    return os.path.join(os.path.abspath("."), nombre_archivo)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, nombre_archivo)
 
 
 class OptiSteelApp:
@@ -528,6 +530,60 @@ class OptiSteelApp:
             messagebox.showerror(
                 "Error de formato",
                 "Por favor verifica que los valores numéricos ingresados sean correctos.",
+                parent=self.root,
+            )
+            return
+
+        if not (
+            math.isfinite(M_ext)
+            and math.isfinite(V_ext)
+            and math.isfinite(L)
+            and math.isfinite(sigma_adm)
+            and math.isfinite(limite_flecha)
+        ):
+            messagebox.showerror(
+                "Valor no finito",
+                "Los parámetros deben ser valores numéricos finitos (no se permiten NaN ni Infinito).",
+                parent=self.root,
+            )
+            return
+
+        if L <= 0:
+            messagebox.showerror(
+                "Valor inválido",
+                "La longitud de la viga (L) debe ser estrictamente mayor que cero.",
+                parent=self.root,
+            )
+            return
+
+        if sigma_adm <= 0:
+            messagebox.showerror(
+                "Valor inválido",
+                "El esfuerzo admisible (σ) debe ser estrictamente mayor que cero.",
+                parent=self.root,
+            )
+            return
+
+        if limite_flecha <= 0:
+            messagebox.showerror(
+                "Valor inválido",
+                "El límite de flecha debe ser estrictamente mayor que cero.",
+                parent=self.root,
+            )
+            return
+
+        if M_ext < 0:
+            messagebox.showerror(
+                "Valor inválido",
+                "El momento externo (M) no puede ser negativo.",
+                parent=self.root,
+            )
+            return
+
+        if V_ext < 0:
+            messagebox.showerror(
+                "Valor inválido",
+                "El cortante externo (V) no puede ser negativo.",
                 parent=self.root,
             )
             return
