@@ -1,0 +1,17 @@
+{
+  "name": "optisteel-monorepo",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @optisteel/web dev",
+    "test": "pnpm -r test",
+    "test:run": "pnpm -r test",
+    "test:core": "pnpm --filter @optisteel/core test",
+    "test:web": "pnpm --filter @optisteel/web test",
+    "build": "pnpm --filter @optisteel/core build && pnpm --filter @optisteel/web build",
+    "build:core": "pnpm --filter @optisteel/core build",
+    "build:web": "pnpm --filter @optisteel/web build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

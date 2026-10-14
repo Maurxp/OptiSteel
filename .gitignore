@@ -3,3 +3,10 @@ __pycache__/
 .venv/
 .env
 venv/
+
+# Node & Monorepo
+node_modules/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
