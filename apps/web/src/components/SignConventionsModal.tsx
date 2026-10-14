@@ -39,7 +39,7 @@ export const SignConventionsModal: React.FC<SignConventionsModalProps> = ({ isOp
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
+      <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.85rem', lineHeight: '1.6' }}>
         <div className="alert alert-info" style={{ margin: 0 }}>
           <div>
             <strong>Referencia Teórica:</strong> Euler-Bernoulli, Pytel & Singer 4.ª Edición (Capítulo 6), y resistencia de materiales clásica.

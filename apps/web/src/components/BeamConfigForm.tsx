@@ -144,7 +144,7 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
       {/* Geometry & Elasticity */}
       <div className="form-section">
         <div className="form-section-title">Geometría y Elasticidad</div>
-        <div className="form-row">
+        <div className="form-row form-row-3">
           <div className="form-group">
             <label className="form-label" htmlFor="beam-length">
               <span>Longitud (L)</span>
@@ -267,7 +267,7 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
       <div className="form-section">
         <div className="form-section-title">
           <span>Cargas Aplicadas ({form.loads.length})</span>
-          <div style={{ display: 'flex', gap: '0.35rem' }}>
+          <div className="load-action-buttons">
             <button
               type="button"
               className="btn btn-secondary btn-sm"

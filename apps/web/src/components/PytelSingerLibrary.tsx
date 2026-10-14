@@ -76,7 +76,7 @@ export const PytelSingerLibrary: React.FC<PytelSingerLibraryProps> = ({ onLoadCa
   return (
     <div className="pytel-library">
       <div className="glass-panel" style={{ marginBottom: '1.5rem' }}>
-        <div className="panel-header">
+        <div className="panel-header pytel-panel-header">
           <div>
             <h2 className="panel-title">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -90,7 +90,7 @@ export const PytelSingerLibrary: React.FC<PytelSingerLibraryProps> = ({ onLoadCa
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div className="pytel-filter-buttons">
             <button
               type="button"
               className={`btn btn-sm ${filterSupport === 'all' ? 'btn-primary' : 'btn-secondary'}`}

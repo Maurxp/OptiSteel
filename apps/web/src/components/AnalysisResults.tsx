@@ -254,7 +254,7 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ analysis }) =>
           </table>
         </div>
 
-        <div style={{ marginTop: '0.85rem', display: 'flex', gap: '1.5rem', fontSize: '0.8rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', flexWrap: 'wrap' }}>
+        <div className="equilibrium-summary">
           <span>Σ Fy = {equilibrium.sumFy.toFixed(4)} kN</span>
           <span>Σ M (x=0) = {equilibrium.sumM.toFixed(4)} kN·m</span>
           <span>Tolerancia de Equilibrio = {equilibrium.toleranceForce} kN</span>
@@ -315,7 +315,7 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ analysis }) =>
             <h4 style={{ fontSize: '0.9rem', color: 'var(--text-main)', marginBottom: '0.5rem' }}>
               Pendientes en los Extremos (Giro de la Elástica θ):
             </h4>
-            <div style={{ display: 'flex', gap: '2rem', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', flexWrap: 'wrap' }}>
+            <div className="slopes-grid">
               <div>
                 Extremo Izquierdo θ(0):{' '}
                 <strong style={{ color: '#38bdf8' }}>
