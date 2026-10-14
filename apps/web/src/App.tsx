@@ -11,6 +11,7 @@ import { Header } from './components/Header.js';
 import { BeamConfigForm } from './components/BeamConfigForm.js';
 import { BeamSchematic } from './components/BeamSchematic.js';
 import { AnalysisResults } from './components/AnalysisResults.js';
+import { SteelProfileSelector } from './components/SteelProfileSelector.js';
 import { PytelSingerLibrary } from './components/PytelSingerLibrary.js';
 import { SignConventionsModal } from './components/SignConventionsModal.js';
 
@@ -128,6 +129,12 @@ export const App: React.FC = () => {
               {analysisResult.result && (
                 <AnalysisResults analysis={analysisResult.result} />
               )}
+
+              {/* Steel Profile Selection Engine (Phase 3) */}
+              <SteelProfileSelector
+                beamModel={beamModel}
+                isModelValid={validation.isValid}
+              />
             </div>
           </div>
         )}

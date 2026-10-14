@@ -80,6 +80,39 @@ export interface BeamSection {
   Wz?: number;
 }
 
+/**
+ * Structural steel cross-section family type:
+ * - 'W': Wide-flange shapes (vigas de patín ancho / alas paralelas)
+ * - 'S': American Standard I-beams (vigas estándar I con patines inclinados)
+ * - 'C': American Standard channels (canales estándar en U)
+ */
+export type SteelProfileType = 'W' | 'S' | 'C';
+
+/**
+ * Canonical structural steel cross-section profile.
+ * Source: Pytel & Singer, "Resistencia de Materiales", 4th Edition, Appendix B (Table B-2).
+ *
+ * SCALE FACTORS NOTE:
+ * - `ixMillionMm4`: Stored in 10^6 mm^4 (millions of mm^4). Equivalent to 100 cm^4 or 10^-6 m^4.
+ *   Multiply by 1e6 to obtain mm^4. Multiply by 100 to obtain cm^4.
+ * - `sxThousandMm3`: Stored in 10^3 mm^3 (thousands of mm^3). Equivalent to 1 cm^3 or 10^-6 m^3.
+ *   Multiply by 1e3 to obtain mm^3. Multiply by 1 to obtain cm^3.
+ */
+export interface SteelProfile {
+  readonly designation: string;
+  readonly type: SteelProfileType;
+  /** Linear mass in kg/m */
+  readonly massKgPerM: number;
+  /** Total section depth in mm */
+  readonly depthMm: number;
+  /** Web thickness in mm */
+  readonly webThicknessMm: number;
+  /** Moment of inertia about strong axis in 10^6 mm^4 (millions of mm^4) */
+  readonly ixMillionMm4: number;
+  /** Elastic section modulus about strong axis in 10^3 mm^3 (thousands of mm^3) */
+  readonly sxThousandMm3: number;
+}
+
 export interface BeamModel {
   id?: string;
   /** Total length of the beam in meters (strictly > 0) */

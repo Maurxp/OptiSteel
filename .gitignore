@@ -10,3 +10,6 @@ dist/
 coverage/
 .turbo/
 *.tsbuildinfo
+
+# Reference documents (local only)
+Resist Mat. SINGER (1).pdf
