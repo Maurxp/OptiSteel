@@ -1,9 +1,16 @@
-import { FORCE_TOLERANCE, MOMENT_TOLERANCE } from '../constants.js';
+import {
+  FORCE_TOLERANCE,
+  LENGTH_TOLERANCE,
+  LOAD_INTENSITY_TOLERANCE,
+  MOMENT_TOLERANCE,
+  SPAN_EQUALITY_TOLERANCE,
+} from '../constants.js';
 import type {
   BeamAnalysisResult,
   BeamModel,
   DeflectionAnalysis,
   DeflectionPlaceholder,
+  DistributedLoad,
   EquilibriumCheck,
   Reaction,
 } from '../types.js';
@@ -50,28 +57,128 @@ export interface ContinuousBeamReactionsResult {
 export function calculateContinuousBeamReactions(
   model: BeamModel
 ): ContinuousBeamReactionsResult {
-  const supports = [...model.supports].sort((a, b) => a.x - b.x);
-  if (supports.length !== 3) {
+  // Precondition 1: Exactly 3 simple supports
+  if (!model.supports || model.supports.length !== 3) {
     throw new Error(
-      `El solver de viga continua de dos vanos requiere exactamente 3 apoyos. Recibidos: ${supports.length}.`
+      `El solver de viga continua de dos vanos (Caso H4) requiere exactamente 3 apoyos simples. Recibidos: ${model.supports?.length ?? 0}.`
     );
   }
 
+  const hasFixed = model.supports.some((s) => s.type === 'fixed');
+  if (hasFixed) {
+    throw new Error(
+      'El solver de viga continua de dos vanos (Caso H4) requiere apoyos simples (pin o roller), sin empotramientos.'
+    );
+  }
+
+  // Precondition 2: Non-destructive sorting & span equality
+  const supports = [...model.supports].sort((a, b) => a.x - b.x);
   const s1 = supports[0]!;
   const s2 = supports[1]!;
   const s3 = supports[2]!;
-
-  if (s1.type === 'fixed' || s2.type === 'fixed' || s3.type === 'fixed') {
-    throw new Error(
-      'El solver de viga continua de dos vanos requiere apoyos simples (pin o roller), sin empotramientos.'
-    );
-  }
 
   const L1 = s2.x - s1.x;
   const L2 = s3.x - s2.x;
 
   if (L1 <= 0 || L2 <= 0) {
-    throw new Error('Longitud de vano no positiva en viga continua.');
+    throw new Error(
+      'Longitud de vano no positiva en viga continua de dos vanos (los apoyos deben tener posiciones distintas y crecientes).'
+    );
+  }
+
+  if (Math.abs(L1 - L2) > SPAN_EQUALITY_TOLERANCE) {
+    throw new Error(
+      `El solver de viga continua (Caso H4) requiere dos vanos de igual longitud (|L1 - L2| <= ${SPAN_EQUALITY_TOLERANCE} m). Recibido: L1 = ${L1} m, L2 = ${L2} m.`
+    );
+  }
+
+  // Precondition 3: Material and section properties
+  if (!model.material || !model.section) {
+    throw new Error(
+      'El solver de viga continua (Caso H4) requiere propiedades de material (E en GPa) y sección (Iz en cm^4).'
+    );
+  }
+
+  if (model.material.E <= 0 || model.section.Iz <= 0) {
+    throw new Error(
+      'Propiedades de material y sección no válidas (E e Iz deben ser estrictamente mayores que cero).'
+    );
+  }
+
+  // Precondition 4: Loads validation
+  if (!model.loads || model.loads.length === 0) {
+    throw new Error(
+      'El solver de viga continua (Caso H4) requiere al menos una carga distribuida continua en ambos vanos.'
+    );
+  }
+
+  const hasPointLoad = model.loads.some((l) => l.type === 'point');
+  if (hasPointLoad) {
+    throw new Error(
+      'El solver de viga continua de dos vanos no admite cargas puntuales (solo Caso H4: dos vanos iguales con carga uniforme continua).'
+    );
+  }
+
+  const hasUnsupportedLoadType = model.loads.some(
+    (l) => l.type !== 'distributed'
+  );
+  if (hasUnsupportedLoadType) {
+    throw new Error(
+      'El solver de viga continua de dos vanos no admite tipos de carga distintos a cargas distribuidas uniformes.'
+    );
+  }
+
+  const minSupportX = s1.x;
+  const maxSupportX = s3.x;
+
+  const hasOverhangDistLoad = model.loads.some(
+    (l) =>
+      l.type === 'distributed' &&
+      (Math.min(l.xStart, l.xEnd) < minSupportX - LENGTH_TOLERANCE ||
+        Math.max(l.xStart, l.xEnd) > maxSupportX + LENGTH_TOLERANCE)
+  );
+  if (hasOverhangDistLoad) {
+    throw new Error(
+      'El solver de viga continua de dos vanos no admite cargas en voladizo exterior fuera del tramo entre apoyos.'
+    );
+  }
+
+  const hasTrapezoidalLoad = model.loads.some(
+    (l) =>
+      l.type === 'distributed' &&
+      Math.abs(l.wStart - l.wEnd) > LOAD_INTENSITY_TOLERANCE
+  );
+  if (hasTrapezoidalLoad) {
+    throw new Error(
+      'El solver de viga continua de dos vanos no admite cargas distribuidas trapezoidales o no uniformes (wStart != wEnd).'
+    );
+  }
+
+  const firstDist = model.loads.find(
+    (l): l is DistributedLoad => l.type === 'distributed'
+  );
+  const firstW = firstDist?.wStart ?? 0;
+  const hasDifferingIntensities = model.loads.some(
+    (l) =>
+      l.type === 'distributed' &&
+      Math.abs(l.wStart - firstW) > LOAD_INTENSITY_TOLERANCE
+  );
+  if (hasDifferingIntensities) {
+    throw new Error(
+      'El solver de viga continua de dos vanos requiere que todas las cargas distribuidas tengan la misma intensidad w.'
+    );
+  }
+
+  const hasPartialOrDiscontinuousLoad = model.loads.some(
+    (l) =>
+      l.type === 'distributed' &&
+      (Math.abs(l.xStart - minSupportX) > LENGTH_TOLERANCE ||
+        Math.abs(l.xEnd - maxSupportX) > LENGTH_TOLERANCE)
+  );
+  if (hasPartialOrDiscontinuousLoad) {
+    throw new Error(
+      'El solver de viga continua (Caso H4) no admite cargas parciales o discontinuas: la carga debe cubrir continuamente desde el apoyo inicial hasta el apoyo final.'
+    );
   }
 
   // Calculate loading terms on each span for Clapeyron equation:
@@ -83,13 +190,15 @@ export function calculateContinuousBeamReactions(
 
   for (const load of model.loads) {
     if (load.type === 'distributed') {
-      const span = load.xEnd - load.xStart;
+      const effStart = Math.max(s1.x, Math.min(s3.x, load.xStart));
+      const effEnd = Math.max(s1.x, Math.min(s3.x, load.xEnd));
+      const span = effEnd - effStart;
       const wAvg = 0.5 * (load.wStart + load.wEnd);
       totalDownwardForce += wAvg * span;
 
       // Span 1 contribution
-      const aStart1 = Math.max(s1.x, Math.min(s2.x, load.xStart)) - s1.x;
-      const aEnd1 = Math.max(s1.x, Math.min(s2.x, load.xEnd)) - s1.x;
+      const aStart1 = Math.max(s1.x, Math.min(s2.x, effStart)) - s1.x;
+      const aEnd1 = Math.max(s1.x, Math.min(s2.x, effEnd)) - s1.x;
       if (aEnd1 > aStart1) {
         // For full span uniform load on span 1
         const w = wAvg;
@@ -106,8 +215,8 @@ export function calculateContinuousBeamReactions(
       }
 
       // Span 2 contribution (b measured from right support s3: b = s3.x - x)
-      const aStart2 = Math.max(s2.x, Math.min(s3.x, load.xStart));
-      const aEnd2 = Math.max(s2.x, Math.min(s3.x, load.xEnd));
+      const aStart2 = Math.max(s2.x, Math.min(s3.x, effStart));
+      const aEnd2 = Math.max(s2.x, Math.min(s3.x, effEnd));
       if (aEnd2 > aStart2) {
         const w = wAvg;
         if (Math.abs(aStart2 - s2.x) < 1e-9 && Math.abs(aEnd2 - s3.x) < 1e-9) {
@@ -119,19 +228,6 @@ export function calculateContinuousBeamReactions(
           term2 += (w * da * bMid * (L2 ** 2 - bMid ** 2)) / L2;
         }
       }
-    } else if (load.type === 'point') {
-      totalDownwardForce += load.P;
-      if (load.x >= s1.x && load.x <= s2.x) {
-        const a = load.x - s1.x;
-        term1 += (load.P * a * (L1 ** 2 - a ** 2)) / L1;
-      } else if (load.x >= s2.x && load.x <= s3.x) {
-        const b = s3.x - load.x;
-        term2 += (load.P * b * (L2 ** 2 - b ** 2)) / L2;
-      }
-    } else {
-      throw new Error(
-        `Tipo de carga '${load.type}' aún no soportada en el solver de viga continua.`
-      );
     }
   }
 
@@ -197,12 +293,14 @@ export function calculateContinuousBeamReactions(
     if (load.type === 'point') {
       downwardForceMomentAbout0 += load.P * load.x;
     } else if (load.type === 'distributed') {
-      const span = load.xEnd - load.xStart;
+      const effStart = Math.max(s1.x, Math.min(s3.x, load.xStart));
+      const effEnd = Math.max(s1.x, Math.min(s3.x, load.xEnd));
+      const span = effEnd - effStart;
       const totalW = 0.5 * (load.wStart + load.wEnd) * span;
       const centroid =
         Math.abs(load.wStart - load.wEnd) < 1e-9
-          ? 0.5 * (load.xStart + load.xEnd)
-          : load.xStart +
+          ? 0.5 * (effStart + effEnd)
+          : effStart +
             (span * (load.wStart + 2 * load.wEnd)) /
               (3 * (load.wStart + load.wEnd));
       downwardForceMomentAbout0 += totalW * centroid;

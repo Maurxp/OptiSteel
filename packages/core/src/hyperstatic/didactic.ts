@@ -1,3 +1,4 @@
+import { FORCE_TOLERANCE } from '../constants.js';
 import type {
   BeamAnalysisResult,
   DidacticReport,
@@ -35,6 +36,20 @@ export function generateHyperstaticDidacticReport(
   const E = model.material?.E;
   const Iz = model.section?.Iz;
 
+  const formatReactionValue = (val: number): string => {
+    if (Math.abs(val) < FORCE_TOLERANCE) {
+      return '0.000';
+    }
+    const abs = Math.abs(val);
+    if (abs < 0.001) {
+      // Para magnitudes menores que 0.001 kN pero no nulas (>= FORCE_TOLERANCE),
+      // aumentamos la precisión hasta 7 decimales sin ceros finales superfluos
+      // para evitar mostrar un valor engañoso "0.000 kN" junto con una dirección
+      return val.toFixed(7).replace(/0+$/, '');
+    }
+    return val.toFixed(3);
+  };
+
   // Case H1: Propped cantilever with point loads
   if (
     supports.length === 2 &&
@@ -46,10 +61,38 @@ export function generateHyperstaticDidacticReport(
     const rFixed = reactions.find((r) => r.supportId === sFixed.id);
     const rSimple = reactions.find((r) => r.supportId === sSimple.id);
 
+    const isFixedAtLeft = sFixed.x < sSimple.x;
+    const spanL = Math.abs(sSimple.x - sFixed.x);
+
     const ptLoads = model.loads.filter((l): l is PointLoad => l.type === 'point');
     const loadSummaryStr = ptLoads
       .map((p) => `P = ${p.P} kN en x = ${p.x} m`)
       .join(', ');
+
+    // Primary cantilever deflection and flexibility calculations:
+    // a_i = distance from fixed support to load
+    // delta_i = P_i * a_i^2 * (3*spanL - a_i) / (6 * EI)
+    // f_BB = spanL^3 / (3 * EI)
+    const loadContributions = ptLoads.map((p) => {
+      const rawA = isFixedAtLeft ? p.x - sFixed.x : sFixed.x - p.x;
+      const a = Math.max(0, Math.min(spanL, rawA));
+      const num = (p.P * a * a * (3 * spanL - a)) / 6;
+      return { p, a, num };
+    });
+
+    const deltaB0Numerator = loadContributions.reduce((acc, c) => acc + c.num, 0);
+    const fbbNumerator = spanL ** 3 / 3;
+
+    const formatArm = (val: number): string =>
+      val % 1 === 0 ? val.toFixed(0) : val.toFixed(3);
+
+    const isZeroForce = Math.abs(rSimple?.Ry ?? 0) < FORCE_TOLERANCE;
+    const rbVal = isZeroForce ? 0 : (rSimple?.Ry ?? 0);
+    const rbDirectionText = isZeroForce
+      ? '(reacción nula)'
+      : rbVal > 0
+        ? '(positiva, ascendente ↑)'
+        : '(negativa, descendente ↓)';
 
     const steps: DidacticStep[] = [
       {
@@ -66,8 +109,8 @@ export function generateHyperstaticDidacticReport(
         title: 'Definición de la Estructura Primaria Isostática',
         principle:
           'Método de las Fuerzas (Flexibilidad): liberación de la ligadura redundante para formar una estructura estáticamente determinada.',
-        formulation: 'Estructura primaria = Viga en voladizo (cantilever) empotrada en A.',
-        substitution: `Al retirar el apoyo simple en x = ${sSimple.x} m, la viga queda como voladizo libre en su extremo de longitud L = ${L} m.`,
+        formulation: `Estructura primaria = Viga en voladizo (cantilever) empotrada en x = ${sFixed.x} m.`,
+        substitution: `Al retirar el apoyo simple en x = ${sSimple.x} m, la viga queda como voladizo libre en su extremo con empotramiento en x = ${sFixed.x} m (longitud entre apoyos L = ${spanL} m).`,
         result: 'Estructura primaria estáticamente determinada y cinemáticamente admisible.',
       },
       {
@@ -88,22 +131,32 @@ export function generateHyperstaticDidacticReport(
         formulation:
           'f_BB = L³ / (3·EI)\nδ_B0 = Σ [ P_i · a_i² · (3L - a_i) / (6·EI) ]',
         substitution:
-          `L = ${L} m, EI = ${EI !== undefined ? `${EI.toFixed(1)} kN·m² (E=${E} GPa, Iz=${Iz} cm⁴)` : 'EI'}.\n` +
-          ptLoads
+          `L = ${spanL} m, EI = ${EI !== undefined ? `${EI.toFixed(1)} kN·m² (E=${E} GPa, Iz=${Iz} cm⁴)` : 'EI'}.\n` +
+          loadContributions
             .map(
-              (p) =>
-                `Carga P=${p.P} kN, a=${p.x} m: δ_i = (${p.P} · ${p.x}² · (3·${L} - ${p.x})) / (6·EI) = ${((p.P * p.x * p.x * (3 * L - p.x)) / 6).toFixed(3)} / EI`
+              (c) =>
+                `Carga P=${c.p.P} kN, a=${formatArm(c.a)} m: δ_i = (${c.p.P} · ${formatArm(c.a)}² · (3·${spanL} - ${formatArm(c.a)})) / (6·EI) = ${c.num.toFixed(3)} / EI`
             )
-            .join('\n'),
-        result: `f_BB = ${(L ** 3 / 3).toFixed(3)} / EI m/kN`,
+            .join('\n') +
+          (loadContributions.length > 1
+            ? `\nδ_B0 = Σ δ_i = ${deltaB0Numerator.toFixed(3)} / EI kN·m³`
+            : ''),
+        result:
+          `δ_B0 = ${deltaB0Numerator.toFixed(3)} / EI kN·m³, f_BB = ${fbbNumerator.toFixed(3)} / EI m/kN` +
+          (EI !== undefined
+            ? ` (δ_B0 = ${((deltaB0Numerator / EI) * 1000).toFixed(4)} mm, f_BB = ${(fbbNumerator / EI).toFixed(6)} m/kN)`
+            : ''),
       },
       {
         stepNumber: 5,
         title: 'Resolución de la Reacción Redundante RB',
         principle: 'Sustitución en la ecuación de compatibilidad cinemática.',
         formulation: 'RB = δ_B0 / f_BB',
-        substitution: `RB = (${rSimple?.Ry.toFixed(4)} · f_BB) / f_BB`,
-        result: `RB = ${rSimple?.Ry.toFixed(3)} kN (positiva, ascendente ↑)`,
+        substitution:
+          EI !== undefined
+            ? `RB = (${deltaB0Numerator.toFixed(3)} / EI) / (${fbbNumerator.toFixed(3)} / EI) = ${deltaB0Numerator.toFixed(3)} / ${fbbNumerator.toFixed(3)} = ${((deltaB0Numerator / EI) * 1000).toFixed(4)} mm / ${((fbbNumerator / EI) * 1000).toFixed(4)} mm/kN`
+            : `RB = (${deltaB0Numerator.toFixed(3)} / EI) / (${fbbNumerator.toFixed(3)} / EI) = ${deltaB0Numerator.toFixed(3)} / ${fbbNumerator.toFixed(3)}`,
+        result: `RB = ${formatReactionValue(rbVal)} kN ${rbDirectionText}`,
         check: {
           description: 'Desplazamiento vertical nulo en el apoyo simple v(B)',
           isVerified: deflection.isImplemented && Math.abs(deflection.evaluate(sSimple.x)) < 1e-6,
@@ -115,7 +168,9 @@ export function generateHyperstaticDidacticReport(
         title: 'Equilibrio Global y Reacciones en el Empotramiento A',
         principle: 'Equaciones universales de la estática en el plano (Σ Fy = 0, Σ M = 0).',
         formulation: 'RA = Σ P_i - RB\nMA = Σ [ P_i · a_i ] - RB · L  (+CCW)',
-        substitution: `RA = ${ptLoads.reduce((acc, p) => acc + p.P, 0)} kN - ${rSimple?.Ry.toFixed(3)} kN\nMA = (${ptLoads.map((p) => `${p.P}·${p.x}`).join(' + ')}) - (${rSimple?.Ry.toFixed(3)} · ${L})`,
+        substitution:
+          `RA = ${ptLoads.reduce((acc, p) => acc + p.P, 0)} kN - ${rSimple?.Ry.toFixed(3)} kN\n` +
+          `MA = (${loadContributions.map((c) => `${c.p.P}·${formatArm(c.a)}`).join(' + ')}) - (${rSimple?.Ry.toFixed(3)} · ${spanL})`,
         result: `RA = ${rFixed?.Ry.toFixed(3)} kN (↑), MA = ${rFixed?.Mr !== undefined ? `${rFixed.Mr.toFixed(3)} kN·m (+CCW)` : '—'}`,
         check: {
           description: 'Equilibrio estático global verificado',
@@ -144,9 +199,9 @@ export function generateHyperstaticDidacticReport(
         stepNumber: 8,
         title: 'Deformada Elástica y Verificación de Condiciones de Frontera',
         principle: 'Doble integración analítica: EI · v\'\'(x) = -M(x).',
-        formulation: 'v(0) = 0, θ(0) = 0 (empotramiento); v(L) = 0 (rodillo).',
+        formulation: `v(${sFixed.x}) = 0, θ(${sFixed.x}) = 0 (empotramiento); v(${sSimple.x}) = 0 (rodillo).`,
         substitution: deflection.isImplemented
-          ? `v(0) = ${(deflection.evaluate(0) * 1000).toFixed(6)} mm, θ(0) = ${deflection.evaluateSlope(0).toFixed(7)} rad\nv(${L}) = ${(deflection.evaluate(L) * 1000).toFixed(6)} mm\nFlecha máxima descendente en x = ${deflection.maxDownward.x.toFixed(4)} m: v_max = ${(deflection.maxDownward.value * 1000).toFixed(4)} mm.`
+          ? `v(${sFixed.x}) = ${(deflection.evaluate(sFixed.x) * 1000).toFixed(6)} mm, θ(${sFixed.x}) = ${deflection.evaluateSlope(sFixed.x).toFixed(7)} rad\nv(${sSimple.x}) = ${(deflection.evaluate(sSimple.x) * 1000).toFixed(6)} mm\nFlecha máxima descendente en x = ${deflection.maxDownward.x.toFixed(4)} m: v_max = ${(deflection.maxDownward.value * 1000).toFixed(4)} mm.`
           : 'Requiere propiedades de material y sección para evaluación numérica.',
         result: deflection.isImplemented
           ? `Flecha máxima = ${(deflection.maxDownward.value * 1000).toFixed(3)} mm en x = ${deflection.maxDownward.x.toFixed(3)} m.`
@@ -155,9 +210,9 @@ export function generateHyperstaticDidacticReport(
           description: 'Condiciones de frontera cinemáticas exactas',
           isVerified:
             deflection.isImplemented &&
-            Math.abs(deflection.evaluate(0)) < 1e-7 &&
-            Math.abs(deflection.evaluateSlope(0)) < 1e-7 &&
-            Math.abs(deflection.evaluate(L)) < 1e-7,
+            Math.abs(deflection.evaluate(sFixed.x)) < 1e-7 &&
+            Math.abs(deflection.evaluateSlope(sFixed.x)) < 1e-7 &&
+            Math.abs(deflection.evaluate(sSimple.x)) < 1e-7,
         },
       },
     ];
@@ -167,13 +222,13 @@ export function generateHyperstaticDidacticReport(
       caseName: 'Caso H1: Viga Empotrada-Apoyada con Cargas Puntuales',
       degreeOfIndeterminacy: 1,
       redundantReactions: ['RB (Reacción vertical en apoyo simple)'],
-      primaryStructure: 'Viga en voladizo empotrada en x = 0',
+      primaryStructure: `Viga en voladizo empotrada en x = ${sFixed.x} m`,
       compatibilityConditions: ['Desplazamiento vertical nulo en el apoyo simple: v(B) = 0'],
       steps,
       conclusions: [
         `Reacción vertical en empotramiento A: RA = ${rFixed?.Ry.toFixed(3)} kN`,
         `Momento de reacción en empotramiento A: MA = ${rFixed?.Mr?.toFixed(3)} kN·m (antihorario)`,
-        `Reacción vertical en rodillo B: RB = ${rSimple?.Ry.toFixed(3)} kN`,
+        `Reacción vertical en rodillo B: RB = ${formatReactionValue(rSimple?.Ry ?? 0)} kN`,
         `Cargas aplicadas: ${loadSummaryStr}`,
         `Equilibrio de fuerzas verticales y momentos verificado con precisión < ${equilibrium.toleranceForce} kN`,
       ],
@@ -188,6 +243,9 @@ export function generateHyperstaticDidacticReport(
   ) {
     const sFixed = supports.find((s) => s.type === 'fixed')!;
     const sSimple = supports.find((s) => s.type !== 'fixed')!;
+    const isFixedAtLeft = sFixed.x < sSimple.x;
+    const spanL = Math.abs(sSimple.x - sFixed.x);
+
     const rFixed = reactions.find((r) => r.supportId === sFixed.id);
     const rSimple = reactions.find((r) => r.supportId === sSimple.id);
 
@@ -195,6 +253,9 @@ export function generateHyperstaticDidacticReport(
     const ptLoads = model.loads.filter((l): l is PointLoad => l.type === 'point');
 
     const isPureUniform =
+      isFixedAtLeft &&
+      Math.abs(sFixed.x - 0) < 1e-4 &&
+      Math.abs(sSimple.x - L) < 1e-4 &&
       ptLoads.length === 0 &&
       distLoads.length === 1 &&
       Math.abs(distLoads[0]!.xStart - 0) < 1e-4 &&
@@ -227,7 +288,7 @@ export function generateHyperstaticDidacticReport(
           principle: 'Compatibilidad de deformaciones: v(L) = δ_B0 - RB · f_BB = 0.',
           formulation: 'RB = δ_B0 / f_BB = (3/8) · w · L',
           substitution: `RB = (3/8) · (${wVal} kN/m) · (${L} m) = ${((3 / 8) * wVal * L).toFixed(3)} kN`,
-          result: `RB = ${rSimple?.Ry.toFixed(3)} kN (↑)`,
+          result: `RB = ${formatReactionValue(rSimple?.Ry ?? 0)} kN (↑)`,
           check: {
             description: 'Deflexión nula en el rodillo B',
             isVerified: deflection.isImplemented && Math.abs(deflection.evaluate(sSimple.x)) < 1e-6,
@@ -285,7 +346,7 @@ export function generateHyperstaticDidacticReport(
         conclusions: [
           `Reacción vertical en empotramiento A: RA = ${rFixed?.Ry.toFixed(3)} kN = 5wL/8`,
           `Momento de reacción en A: MA = +${rFixed?.Mr?.toFixed(3)} kN·m = +wL²/8`,
-          `Reacción vertical en rodillo B: RB = ${rSimple?.Ry.toFixed(3)} kN = 3wL/8`,
+          `Reacción vertical en rodillo B: RB = ${formatReactionValue(rSimple?.Ry ?? 0)} kN = 3wL/8`,
           `Momento flector máximo positivo: +${moment.maxPositive.value.toFixed(4)} kN·m en x = ${(5 * L / 8).toFixed(3)} m`,
           `Punto de inflexión interior: x = ${(L / 4).toFixed(3)} m (M = 0)`,
         ],
@@ -297,13 +358,93 @@ export function generateHyperstaticDidacticReport(
         ...ptLoads.map((p) => `P = ${p.P} kN en x = ${p.x}m`),
       ].join('; ');
 
+      const fbbNumerator = (spanL ** 3) / 3;
+
+      interface PrimaryLoadContrib {
+        desc: string;
+        deltaNumerator: number;
+      }
+      const primaryContribs: PrimaryLoadContrib[] = [];
+
+      // Point load contributions to cantilever primary deflection at free end
+      for (const p of ptLoads) {
+        const a = isFixedAtLeft ? p.x - sFixed.x : sFixed.x - p.x;
+        const aClamped = Math.max(0, Math.min(spanL, a));
+        const deltaNum = (p.P * aClamped * aClamped * (3 * spanL - aClamped)) / 6;
+        primaryContribs.push({
+          desc: `Carga puntual P = ${p.P} kN en x = ${p.x} m (brazo local a = ${aClamped.toFixed(3)} m):\n  δ_i = (${p.P} · ${aClamped.toFixed(3)}² · (3·${spanL} - ${aClamped.toFixed(3)})) / (6·EI) = ${deltaNum.toFixed(3)} / EI kN·m³`,
+          deltaNumerator: deltaNum,
+        });
+      }
+
+      // Distributed load contributions to cantilever primary deflection at free end
+      for (const d of distLoads) {
+        let a1: number;
+        let a2: number;
+        let w1: number;
+        let w2: number;
+
+        if (isFixedAtLeft) {
+          a1 = Math.max(0, Math.min(spanL, d.xStart - sFixed.x));
+          a2 = Math.max(0, Math.min(spanL, d.xEnd - sFixed.x));
+          const span = d.xEnd - d.xStart;
+          const slope = span > 0 ? (d.wEnd - d.wStart) / span : 0;
+          w1 = d.wStart + slope * (a1 + sFixed.x - d.xStart);
+          w2 = d.wStart + slope * (a2 + sFixed.x - d.xStart);
+        } else {
+          a1 = Math.max(0, Math.min(spanL, sFixed.x - d.xEnd));
+          a2 = Math.max(0, Math.min(spanL, sFixed.x - d.xStart));
+          const span = d.xEnd - d.xStart;
+          const slope = span > 0 ? (d.wEnd - d.wStart) / span : 0;
+          w1 = d.wStart + slope * (sFixed.x - a1 - d.xStart);
+          w2 = d.wStart + slope * (sFixed.x - a2 - d.xStart);
+        }
+
+        if (a2 > a1) {
+          const da = a2 - a1;
+          const slopeA = (w2 - w1) / da;
+          const c0 = w1 - slopeA * a1;
+          const c1 = slopeA;
+
+          const term2 = 3 * spanL * c0;
+          const term3 = 3 * spanL * c1 - c0;
+          const term4 = -c1;
+
+          const evalInt = (a: number): number =>
+            (term2 / 3) * a ** 3 + (term3 / 4) * a ** 4 + (term4 / 5) * a ** 5;
+
+          const integralVal = evalInt(a2) - evalInt(a1);
+          const deltaNum = integralVal / 6;
+
+          const wProfile =
+            Math.abs(c1) < 1e-9
+              ? `w = ${c0.toFixed(3)} kN/m`
+              : `w(a) = ${c0.toFixed(3)} ${c1 >= 0 ? '+' : '-'} ${Math.abs(c1).toFixed(3)}·a kN/m`;
+
+          primaryContribs.push({
+            desc: `Carga distribuida [${d.xStart}, ${d.xEnd}] m (tramo local a ∈ [${a1.toFixed(3)}, ${a2.toFixed(3)}] m, ${wProfile}):\n  δ_i = ∫_{${a1.toFixed(3)}}^{${a2.toFixed(3)}} w(a)·a²·(3L - a) da / (6·EI) = ${deltaNum.toFixed(3)} / EI kN·m³`,
+            deltaNumerator: deltaNum,
+          });
+        }
+      }
+
+      const deltaB0Numerator = primaryContribs.reduce((sum, c) => sum + c.deltaNumerator, 0);
+      const rbTheoretical = fbbNumerator > 0 ? deltaB0Numerator / fbbNumerator : 0;
+      const rbVal = rSimple?.Ry ?? rbTheoretical;
+      const rbDirectionText =
+        Math.abs(rbVal) < FORCE_TOLERANCE
+          ? '(reacción nula)'
+          : rbVal > 0
+            ? '(positiva, ascendente ↑)'
+            : '(negativa, descendente ↓)';
+
       const steps: DidacticStep[] = [
         {
           stepNumber: 1,
           title: 'Identificación del Grado de Hiperestaticidad (Cargas Combinadas/Parciales)',
           principle: 'Grado de indeterminación estática para viga empotrada-apoyada.',
           formulation: 'GH = 3 reacciones - 2 ecuaciones de equilibrio = 1',
-          substitution: `Empotramiento en x=${sFixed.x}m [RA, MA] y apoyo simple en x=${sSimple.x}m [RB]. Cargas activas: ${loadDesc}.`,
+          substitution: `Empotramiento en x = ${sFixed.x} m (${sFixed.id}: RA, MA) y apoyo simple en x = ${sSimple.x} m (${sSimple.id}: RB). Longitud entre apoyos L = ${spanL} m. Cargas activas: ${loadDesc}.`,
           result: 'Sistema hiperestático de 1er grado con fuerza redundante RB.',
         },
         {
@@ -311,33 +452,37 @@ export function generateHyperstaticDidacticReport(
           title: 'Estructura Primaria Isostática y Coeficiente de Flexibilidad',
           principle: 'Método de las Fuerzas: liberación del apoyo simple para formar un voladizo.',
           formulation: 'f_BB = L³ / (3·EI)',
-          substitution: `L = ${L} m, f_BB = ${(L ** 3 / 3).toFixed(2)} / EI m/kN.`,
+          substitution: `L = ${spanL} m, f_BB = (${spanL}³ / 3) / EI = ${fbbNumerator.toFixed(3)} / EI m/kN.`,
           result: 'Estructura primaria en voladizo estáticamente determinada.',
         },
         {
           stepNumber: 3,
           title: 'Compatibilidad de Desplazamientos y Superposición de Deflexiones',
           principle:
-            'Principio de superposición elástica: la deflexión vertical total en B debe anularse.',
+            'Principio de superposición elástica: la deflexión vertical total en el apoyo simple debe anularse (v(B) = 0).',
           formulation:
             'v(B) = δ_B0 - RB · f_BB = 0  =>  RB = δ_B0 / f_BB\n' +
-            'δ_B0 = Σ δ_B0,i  (Suma de deflexiones individuales en el voladizo primario)',
+            'δ_B0 = Σ δ_B0,i  (Suma de deflexiones analíticas individuales en el voladizo primario)',
           substitution:
-            `Deflexión total en voladizo: δ_B0 = (${rSimple?.Ry.toFixed(4)} · f_BB) / EI\n` +
-            `Contribuciones: ${loadDesc}.`,
-          result: `RB = ${rSimple?.Ry.toFixed(3)} kN (↑)`,
+            `Contribuciones individuales en voladizo primario (f_BB = ${fbbNumerator.toFixed(3)} / EI m/kN):\n` +
+            primaryContribs.map((c) => c.desc).join('\n') +
+            `\nδ_B0 = Σ δ_i = ${deltaB0Numerator.toFixed(3)} / EI kN·m³\n` +
+            (EI !== undefined
+              ? `RB = δ_B0 / f_BB = (${deltaB0Numerator.toFixed(3)} / EI) / (${fbbNumerator.toFixed(3)} / EI) = ${deltaB0Numerator.toFixed(3)} / ${fbbNumerator.toFixed(3)} = ${rbTheoretical.toFixed(3)} kN (${((deltaB0Numerator / EI) * 1000).toFixed(4)} mm / ${((fbbNumerator / EI) * 1000).toFixed(4)} mm/kN)`
+              : `RB = δ_B0 / f_BB = (${deltaB0Numerator.toFixed(3)} / EI) / (${fbbNumerator.toFixed(3)} / EI) = ${deltaB0Numerator.toFixed(3)} / ${fbbNumerator.toFixed(3)} = ${rbTheoretical.toFixed(3)} kN`),
+          result: `RB = ${formatReactionValue(rbVal)} kN ${rbDirectionText}`,
           check: {
-            description: 'Deflexión nula en el apoyo simple v(B)',
+            description: `Desplazamiento vertical nulo en el apoyo simple v(${sSimple.x})`,
             isVerified: deflection.isImplemented && Math.abs(deflection.evaluate(sSimple.x)) < 1e-6,
           },
         },
         {
           stepNumber: 4,
           title: 'Equilibrio Estático Global (RA y MA)',
-          principle: 'Equaciones universales de la estática en el plano (Σ Fy = 0, Σ M_A = 0).',
+          principle: 'Equaciones universales de la estática en el plano (Σ Fy = 0, Σ M = 0).',
           formulation: 'RA = Σ F_y - RB\nMA = Σ M_cargas - RB · L  (+CCW)',
-          substitution: `RA = ${rFixed?.Ry.toFixed(3)} kN\nMA = ${rFixed?.Mr?.toFixed(3)} kN·m (+CCW)`,
-          result: `RA = ${rFixed?.Ry.toFixed(3)} kN (↑), MA = ${rFixed?.Mr?.toFixed(3)} kN·m (+CCW)`,
+          substitution: `RA = ${rFixed?.Ry.toFixed(3)} kN (↑)\nMA = ${rFixed?.Mr !== undefined ? `${rFixed.Mr.toFixed(3)} kN·m (+CCW)` : '—'}`,
+          result: `RA = ${rFixed?.Ry.toFixed(3)} kN (↑), MA = ${rFixed?.Mr !== undefined ? `${rFixed.Mr.toFixed(3)} kN·m (+CCW)` : '—'}`,
           check: {
             description: 'Equilibrio estático global Σ Fy = 0 y Σ M = 0',
             isVerified: equilibrium.isBalanced,
@@ -351,26 +496,27 @@ export function generateHyperstaticDidacticReport(
           substitution:
             'Nota pedagógica: Al existir cargas combinadas o carga distribuida parcial, las leyes de esfuerzos se obtienen mediante integración directa continua por tramos. Las fórmulas canónicas cerradas (3wL/8, 5wL/8, wL²/8) solo aplican con rigor para carga uniforme total pura.\n' +
             `Momento flector máximo positivo: M_max(+) = ${formatSigned(moment.maxPositive.value, 4, 'kN·m')} en x = ${moment.maxPositive.x.toFixed(3)} m.\n` +
-            `Momento en empotramiento: M(0+) = ${formatSigned(moment.evaluate(0, 'right'), 4, 'kN·m')}.`,
+            `Momento en empotramiento: M(${sFixed.x}) = ${formatSigned(moment.evaluate(sFixed.x, isFixedAtLeft ? 'right' : 'left'), 4, 'kN·m')}.`,
           result: `M_max = ${moment.maxPositive.value.toFixed(4)} kN·m en x = ${moment.maxPositive.x.toFixed(3)} m.`,
         },
         {
           stepNumber: 6,
           title: 'Deformada Elástica por Doble Integración de Euler-Bernoulli',
-          principle: 'Integración diferencial numérica con condiciones v(0)=0, θ(0)=0, v(L)=0.',
-          formulation: 'v(0) = 0, θ(0) = 0, v(L) = 0',
+          principle: `Integración diferencial numérica con condiciones v(${sFixed.x})=0, θ(${sFixed.x})=0, v(${sSimple.x})=0.`,
+          formulation: `v(${sFixed.x}) = 0, θ(${sFixed.x}) = 0, v(${sSimple.x}) = 0`,
           substitution: deflection.isImplemented
-            ? `Flecha máxima descendente en x = ${deflection.maxDownward.x.toFixed(4)} m: v_max = ${(deflection.maxDownward.value * 1000).toFixed(4)} mm.`
+            ? `v(${sFixed.x}) = ${(deflection.evaluate(sFixed.x) * 1000).toFixed(6)} mm, θ(${sFixed.x}) = ${deflection.evaluateSlope(sFixed.x).toFixed(7)} rad\nv(${sSimple.x}) = ${(deflection.evaluate(sSimple.x) * 1000).toFixed(6)} mm\nFlecha máxima descendente en x = ${deflection.maxDownward.x.toFixed(4)} m: v_max = ${(deflection.maxDownward.value * 1000).toFixed(4)} mm.`
             : 'Requiere EI para cálculo numérico.',
           result: deflection.isImplemented
             ? `v_max = ${(deflection.maxDownward.value * 1000).toFixed(3)} mm en x = ${deflection.maxDownward.x.toFixed(3)} m.`
             : 'Requiere EI.',
           check: {
-            description: 'Condiciones cinemáticas: v(0)=0, θ(0)=0, v(L)=0',
+            description: `Condiciones cinemáticas: v(${sFixed.x})=0, θ(${sFixed.x})=0, v(${sSimple.x})=0`,
             isVerified:
               deflection.isImplemented &&
-              Math.abs(deflection.evaluate(0)) < 1e-7 &&
-              Math.abs(deflection.evaluate(L)) < 1e-7,
+              Math.abs(deflection.evaluate(sFixed.x)) < 1e-7 &&
+              Math.abs(deflection.evaluateSlope(sFixed.x)) < 1e-7 &&
+              Math.abs(deflection.evaluate(sSimple.x)) < 1e-7,
           },
         },
       ];
@@ -379,16 +525,16 @@ export function generateHyperstaticDidacticReport(
         caseId: 'H2',
         caseName: 'Caso H2: Viga Empotrada-Apoyada con Cargas Distribuidas / Combinadas',
         degreeOfIndeterminacy: 1,
-        redundantReactions: ['RB (Reacción vertical en apoyo simple)'],
-        primaryStructure: 'Viga en voladizo empotrada en x = 0',
-        compatibilityConditions: ['Desplazamiento vertical nulo en el rodillo B: v(L) = 0'],
+        redundantReactions: [`RB (Reacción vertical en apoyo simple en x = ${sSimple.x} m)`],
+        primaryStructure: `Viga en voladizo empotrada en x = ${sFixed.x} m`,
+        compatibilityConditions: [`Desplazamiento vertical nulo en el apoyo simple (${sSimple.id}) en x = ${sSimple.x} m: v(${sSimple.x}) = 0`],
         steps,
         conclusions: [
-          `Reacción vertical en empotramiento A: RA = ${rFixed?.Ry.toFixed(3)} kN`,
-          `Momento de reacción en A: MA = ${formatSigned(rFixed?.Mr ?? 0, 3, 'kN·m')} (+CCW)`,
-          `Reacción vertical en rodillo B: RB = ${rSimple?.Ry.toFixed(3)} kN`,
+          `Reacción vertical en empotramiento (${sFixed.id}): RA = ${rFixed?.Ry.toFixed(3)} kN`,
+          `Momento de reacción en (${sFixed.id}): MA = ${formatSigned(rFixed?.Mr ?? 0, 3, 'kN·m')} (+CCW)`,
+          `Reacción vertical en apoyo simple (${sSimple.id}): RB = ${formatReactionValue(rSimple?.Ry ?? 0)} kN`,
           `Momento flector máximo positivo: ${formatSigned(moment.maxPositive.value, 4, 'kN·m')} en x = ${moment.maxPositive.x.toFixed(3)} m`,
-          `Cálculo resuelto fielmente mediante superposición elástica y compatibilidad cinemática v(B) = 0`,
+          `Cálculo resuelto fielmente mediante superposición elástica y compatibilidad cinemática v(${sSimple.x}) = 0`,
         ],
       };
     }
@@ -396,8 +542,9 @@ export function generateHyperstaticDidacticReport(
 
   // Case H3: Fixed-fixed beam
   if (supports.length === 2 && fixedCount === 2) {
-    const sA = supports[0]!;
-    const sB = supports[1]!;
+    const sortedSupports = [...supports].sort((a, b) => a.x - b.x);
+    const sA = sortedSupports[0]!;
+    const sB = sortedSupports[1]!;
     const rA = reactions.find((r) => r.supportId === sA.id);
     const rB = reactions.find((r) => r.supportId === sB.id);
 
@@ -717,9 +864,10 @@ export function generateHyperstaticDidacticReport(
 
   // Case H4: Continuous beam with two equal spans
   if (supports.length === 3 && fixedCount === 0) {
-    const s1 = supports[0]!;
-    const s2 = supports[1]!;
-    const s3 = supports[2]!;
+    const sortedSupports = [...supports].sort((a, b) => a.x - b.x);
+    const s1 = sortedSupports[0]!;
+    const s2 = sortedSupports[1]!;
+    const s3 = sortedSupports[2]!;
     const r1 = reactions.find((r) => r.supportId === s1.id);
     const r2 = reactions.find((r) => r.supportId === s2.id);
     const r3 = reactions.find((r) => r.supportId === s3.id);
@@ -728,8 +876,12 @@ export function generateHyperstaticDidacticReport(
     const distLoads = model.loads.filter((l): l is DistributedLoad => l.type === 'distributed');
     const wVal = distLoads[0]?.wStart ?? 0;
 
-    const xMax1 = (Lv * (1 + Math.sqrt(33))) / 16;
-    const xMax2 = 2 * Lv - xMax1;
+    const x0_1 = s1.x + (3 * Lv) / 8;
+    const x0_2 = s2.x + (5 * Lv) / 8;
+    const xInf_1 = s1.x + (3 * Lv) / 4;
+
+    const xMax1 = s1.x + (Lv * (1 + Math.sqrt(33))) / 16;
+    const xMax2 = s3.x - (Lv * (1 + Math.sqrt(33))) / 16;
 
     const steps: DidacticStep[] = [
       {
@@ -737,7 +889,7 @@ export function generateHyperstaticDidacticReport(
         title: 'Identificación de la Indeterminación en Viga Continua',
         principle: 'Viga de múltiples vanos sobre apoyos simples.',
         formulation: 'GH = 3 reacciones verticales - 2 ecuaciones de equilibrio = 1 (Grado 1)',
-        substitution: `3 apoyos simples [R1 en x=0, R2 en x=${s2.x}m, R3 en x=${s3.x}m]. Dos vanos iguales Lv = ${Lv} m con carga uniforme w = ${wVal} kN/m.`,
+        substitution: `3 apoyos simples [R1 en x=${s1.x}m, R2 en x=${s2.x}m, R3 en x=${s3.x}m]. Dos vanos iguales Lv = ${Lv} m con carga uniforme w = ${wVal} kN/m.`,
         result: 'Se adopta como incógnita hiperestática el momento flector interno en el apoyo central: M_B.',
       },
       {
@@ -745,7 +897,7 @@ export function generateHyperstaticDidacticReport(
         title: 'Ecuación de los Tres Momentos de Clapeyron',
         principle: 'Continuidad de pendiente sobre el apoyo intermedio B entre vano 1 y vano 2.',
         formulation: 'M_A·L1 + 2·M_B·(L1 + L2) + M_C·L2 = - (w1·L1³ / 4) - (w2·L2³ / 4)',
-        substitution: `M_A = 0 (apoyo simple exterior), M_C = 0 (apoyo simple exterior).\nL1 = L2 = Lv = ${Lv} m, w1 = w2 = ${wVal} kN/m.\n2·M_B·(${Lv} + ${Lv}) = - (${wVal}·${Lv}³ / 4) - (${wVal}·${Lv}³ / 4)\n4·M_B·${Lv} = - (${wVal}·${Lv}³ / 2)`,
+        substitution: `M_A = 0 (apoyo simple exterior en x=${s1.x}m), M_C = 0 (apoyo simple exterior en x=${s3.x}m).\nL1 = L2 = Lv = ${Lv} m, w1 = w2 = ${wVal} kN/m.\n2·M_B·(${Lv} + ${Lv}) = - (${wVal}·${Lv}³ / 4) - (${wVal}·${Lv}³ / 4)\n4·M_B·${Lv} = - (${wVal}·${Lv}³ / 2)`,
         result: `M_B = - w·Lv² / 8 = - (${wVal} · ${Lv}²) / 8 = -${((wVal * Lv * Lv) / 8).toFixed(3)} kN·m`,
       },
       {
@@ -771,19 +923,20 @@ export function generateHyperstaticDidacticReport(
         title: 'Esfuerzos Internos, Momentos Máximos y Puntos de Inflexión',
         principle: 'Análisis de cortante cero y momento máximo positivo en cada vano.',
         formulation:
-          'Vano 1: V(x) = R1 - w·x = 0  =>  x_0 = 3·Lv / 8\n' +
+          'Vano 1: V(x) = R1 - w·(x - x_A) = 0  =>  x_0 = x_A + 3·Lv / 8\n' +
           'M_max(+) = 9·w·Lv² / 128\n' +
-          'Punto de inflexión: M(x) = R1·x - w·x²/2 = 0  =>  x_inf = 3·Lv / 4',
+          'Punto de inflexión: M(x) = R1·(x - x_A) - w·(x - x_A)²/2 = 0  =>  x_inf = x_A + 3·Lv / 4',
         substitution:
-          `x_0 = 3(${Lv})/8 = ${(3 * Lv / 8).toFixed(3)} m desde el extremo izquierdo.\n` +
+          `x_0 = ${s1.x !== 0 ? `${s1.x} + ` : ''}3(${Lv})/8 = ${x0_1.toFixed(3)} m (primer vano).\n` +
           `M_max(+) = 9(${wVal})(${Lv}²)/128 = ${(9 * wVal * Lv * Lv / 128).toFixed(4)} kN·m.\n` +
-          `x_inf = 3(${Lv})/4 = ${(3 * Lv / 4).toFixed(3)} m (primer vano).`,
-        result: `M_max(+) = +${(9 * wVal * Lv * Lv / 128).toFixed(3)} kN·m en x = ${(3 * Lv / 8).toFixed(3)} m; M_B = -${((wVal * Lv * Lv) / 8).toFixed(3)} kN·m en x = ${Lv} m.`,
+          `x_inf = ${s1.x !== 0 ? `${s1.x} + ` : ''}3(${Lv})/4 = ${xInf_1.toFixed(3)} m (primer vano).`,
+        result: `M_max(+) = +${(9 * wVal * Lv * Lv / 128).toFixed(3)} kN·m en x = ${x0_1.toFixed(3)} m; M_B = -${((wVal * Lv * Lv) / 8).toFixed(3)} kN·m en x = ${s2.x} m.`,
       },
       {
         stepNumber: 5,
         title: 'Deformada Elástica, Continuidad en B y Flecha Máxima (Máximos Simétricos)',
-        principle: 'Elástica del primer vano (u = x/Lv), simetría estructural y condición de pendiente nula en el apoyo central.',
+        principle:
+          'Elástica del vano continuo, simetría estructural bajo carga uniforme y compatibilidad cinemática de giro continuo sobre el apoyo central.',
         formulation:
           'EI · v(x) = (w·Lv⁴ / 48) · (2u⁴ - 3u³ + u)  en vano 1 (0 ≤ x ≤ Lv)\n' +
           'Raíz de v\'(x) = 0: u_max = (1 + √33) / 16 ≈ 0.421535\n' +
@@ -792,11 +945,11 @@ export function generateHyperstaticDidacticReport(
           '  Vano 2: x_max2 = 2·Lv - x_max1 ≈ 1.578465 · Lv\n' +
           'Magnitud teórica en ambos vanos: v_max = ((39 + 55√33) / 65536) · (w·Lv⁴ / EI)',
         substitution: deflection.isImplemented
-          ? `Vano 1: x_max1 = ${Lv} · (1 + √33)/16 = ${xMax1.toFixed(4)} m\n` +
-            `Vano 2: x_max2 = ${2 * Lv} - ${xMax1.toFixed(4)} = ${xMax2.toFixed(4)} m\n` +
+          ? `Vano 1: x_max1 = ${s1.x !== 0 ? `${s1.x} + ` : ''}${Lv} · (1 + √33)/16 = ${xMax1.toFixed(4)} m\n` +
+            `Vano 2: x_max2 = ${s1.x !== 0 ? `${s3.x} - ` : `${2 * Lv} - `}${s1.x !== 0 ? `${Lv} · (1 + √33)/16` : `${(Lv * (1 + Math.sqrt(33)) / 16).toFixed(4)}`} = ${xMax2.toFixed(4)} m\n` +
             `Flecha máxima teórica en ambos picos: v_max = ${(deflection.maxDownward.value * 1000).toFixed(4)} mm\n` +
             `Evaluación numérica registrada en x = ${deflection.maxDownward.x.toFixed(4)} m: ${(deflection.maxDownward.value * 1000).toFixed(4)} mm\n` +
-            `Giro en apoyo central B: θ(${Lv}m) = ${deflection.evaluateSlope(Lv).toFixed(7)} rad (continuidad perfecta).`
+            `Giro en apoyo central B (x = ${s2.x} m): θ(${s2.x}m) = ${deflection.evaluateSlope(s2.x).toFixed(7)} rad (continuidad perfecta; nulo por simetría).`
           : 'Requiere rigidez flexional EI para evaluación numérica.',
         result: deflection.isImplemented
           ? `Dos picos de flecha máxima simétricos: v_max = ${(deflection.maxDownward.value * 1000).toFixed(3)} mm en x₁ = ${xMax1.toFixed(3)} m (Vano 1) y x₂ = ${xMax2.toFixed(3)} m (Vano 2).`
@@ -805,8 +958,8 @@ export function generateHyperstaticDidacticReport(
           description: 'Continuidad de desplazamiento y pendiente en apoyo central B',
           isVerified:
             deflection.isImplemented &&
-            Math.abs(deflection.evaluate(Lv)) < 1e-7 &&
-            Math.abs(deflection.evaluateSlope(Lv)) < 1e-6,
+            Math.abs(deflection.evaluate(s2.x)) < 1e-7 &&
+            Math.abs(deflection.evaluateSlope(s2.x)) < 1e-6,
         },
       },
     ];
@@ -819,14 +972,14 @@ export function generateHyperstaticDidacticReport(
       primaryStructure: 'Dos vanos isostáticos articulados independientemente',
       compatibilityConditions: [
         'Continuidad de pendiente sobre apoyo intermedio B: θ_izq(B) = θ_der(B)',
-        'Desplazamiento nulo en los tres apoyos: v(0)=0, v(Lv)=0, v(2Lv)=0',
+        `Desplazamiento nulo en los tres apoyos: v(${s1.x})=0, v(${s2.x})=0, v(${s3.x})=0`,
       ],
       steps,
       conclusions: [
         `Momento flector sobre el apoyo central: MB = -${((wVal * Lv * Lv) / 8).toFixed(3)} kN·m = -wLv²/8`,
         `Reacciones exteriores simples: R1 = R3 = ${r1?.Ry.toFixed(3)} kN = 3wLv/8`,
         `Reacción en apoyo intermedio: R2 = ${r2?.Ry.toFixed(3)} kN = 5wLv/4`,
-        `Momento máximo positivo en vanos: +${(9 * wVal * Lv * Lv / 128).toFixed(3)} kN·m en x = ${(3 * Lv / 8).toFixed(3)} m y ${(Lv + 5 * Lv / 8).toFixed(3)} m`,
+        `Momento máximo positivo en vanos: +${(9 * wVal * Lv * Lv / 128).toFixed(3)} kN·m en x = ${x0_1.toFixed(3)} m y ${x0_2.toFixed(3)} m`,
         `Flechas máximas simétricas en ambos vanos: ${(deflection.isImplemented ? (deflection.maxDownward.value * 1000).toFixed(3) : '—')} mm en x₁ = ${xMax1.toFixed(3)} m (Vano 1) y x₂ = ${xMax2.toFixed(3)} m (Vano 2)`,
       ],
     };

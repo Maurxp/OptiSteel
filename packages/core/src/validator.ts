@@ -1,6 +1,11 @@
-import { LENGTH_TOLERANCE } from './constants.js';
+import {
+  LENGTH_TOLERANCE,
+  LOAD_INTENSITY_TOLERANCE,
+  SPAN_EQUALITY_TOLERANCE,
+} from './constants.js';
 import type {
   BeamModel,
+  DistributedLoad,
   Load,
   ValidationResult,
   DeterminacyClassification,
@@ -124,6 +129,34 @@ export function validateBeamModel(model: BeamModel): ValidationResult {
               'El análisis de vigas hiperestáticas (empotrada-apoyada) requiere propiedades de material (E en GPa) y sección (Iz en cm^4).'
             );
           }
+
+          // Case H1: Propped cantilever point loads must be within the span between supports
+          const minSupportX = Math.min(s1.x, s2.x);
+          const maxSupportX = Math.max(s1.x, s2.x);
+          const hasOverhangPointLoad = model.loads.some(
+            (l) =>
+              l.type === 'point' &&
+              (l.x < minSupportX - LENGTH_TOLERANCE ||
+                l.x > maxSupportX + LENGTH_TOLERANCE)
+          );
+          if (hasOverhangPointLoad) {
+            errors.push(
+              'Configuración hiperestática aún no soportada: vigas empotradas-apoyadas con cargas puntuales en voladizo exterior fuera del tramo entre apoyos.'
+            );
+          }
+
+          // Case H2: Propped cantilever distributed loads must be within the span between supports
+          const hasOverhangDistLoad = model.loads.some(
+            (l) =>
+              l.type === 'distributed' &&
+              (Math.min(l.xStart, l.xEnd) < minSupportX - LENGTH_TOLERANCE ||
+                Math.max(l.xStart, l.xEnd) > maxSupportX + LENGTH_TOLERANCE)
+          );
+          if (hasOverhangDistLoad) {
+            errors.push(
+              'Configuración hiperestática aún no soportada: vigas empotradas-apoyadas con cargas distribuidas en voladizo exterior fuera del tramo entre apoyos.'
+            );
+          }
         } else if (fixedCount === 2) {
           // Supported H3 configuration: 2 fixed supports, point and/or distributed loads
           const hasUnsupportedLoads = model.loads.some(
@@ -136,6 +169,34 @@ export function validateBeamModel(model: BeamModel): ValidationResult {
           } else if (!model.material || !model.section) {
             errors.push(
               'El análisis de vigas hiperestáticas (biempotrada) requiere propiedades de material (E en GPa) y sección (Iz en cm^4).'
+            );
+          }
+
+          // Case H3: Bi-clamped beam point loads must be within the span between supports
+          const minSupportX = Math.min(s1.x, s2.x);
+          const maxSupportX = Math.max(s1.x, s2.x);
+          const hasOverhangPointLoad = model.loads.some(
+            (l) =>
+              l.type === 'point' &&
+              (l.x < minSupportX - LENGTH_TOLERANCE ||
+                l.x > maxSupportX + LENGTH_TOLERANCE)
+          );
+          if (hasOverhangPointLoad) {
+            errors.push(
+              'Configuración hiperestática aún no soportada: vigas biempotradas con cargas puntuales en voladizo exterior fuera del tramo entre apoyos.'
+            );
+          }
+
+          // Case H3: Bi-clamped beam distributed loads must be within the span between supports
+          const hasOverhangDistLoad = model.loads.some(
+            (l) =>
+              l.type === 'distributed' &&
+              (Math.min(l.xStart, l.xEnd) < minSupportX - LENGTH_TOLERANCE ||
+                Math.max(l.xStart, l.xEnd) > maxSupportX + LENGTH_TOLERANCE)
+          );
+          if (hasOverhangDistLoad) {
+            errors.push(
+              'Configuración hiperestática aún no soportada: vigas biempotradas con cargas distribuidas en voladizo exterior fuera del tramo entre apoyos.'
             );
           }
         }
@@ -152,29 +213,66 @@ export function validateBeamModel(model: BeamModel): ValidationResult {
         'Configuración hiperestática aún no soportada: vigas continuas con empotramientos aún no están implementadas.'
       );
     } else {
-      const s1 = supports[0]!;
-      const s2 = supports[1]!;
-      const s3 = supports[2]!;
+      const sortedSupports = [...supports].sort((a, b) => a.x - b.x);
+      const s1 = sortedSupports[0]!;
+      const s2 = sortedSupports[1]!;
+      const s3 = sortedSupports[2]!;
       const L1 = s2.x - s1.x;
       const L2 = s3.x - s2.x;
-      const areSpansEqual = Math.abs(L1 - L2) < 1e-3;
+      const areSpansEqual = Math.abs(L1 - L2) <= SPAN_EQUALITY_TOLERANCE;
 
-      // H4 requires uniform distributed load over both spans
+      const minSupportX = s1.x;
+      const maxSupportX = s3.x;
+
+      // Case H4: Point loads are not supported
+      const hasPointLoad = model.loads.some((l) => l.type === 'point');
+
+      // Case H4: Check for loads in exterior overhangs beyond outer supports
+      const hasOverhangPointLoad = model.loads.some(
+        (l) =>
+          l.type === 'point' &&
+          (l.x < minSupportX - LENGTH_TOLERANCE ||
+            l.x > maxSupportX + LENGTH_TOLERANCE)
+      );
+      if (hasOverhangPointLoad) {
+        errors.push(
+          'Configuración hiperestática aún no soportada: vigas continuas con cargas puntuales en voladizo exterior fuera del tramo entre apoyos.'
+        );
+      }
+
+      const hasOverhangDistLoad = model.loads.some(
+        (l) =>
+          l.type === 'distributed' &&
+          (Math.min(l.xStart, l.xEnd) < minSupportX - LENGTH_TOLERANCE ||
+            Math.max(l.xStart, l.xEnd) > maxSupportX + LENGTH_TOLERANCE)
+      );
+      if (hasOverhangDistLoad) {
+        errors.push(
+          'Configuración hiperestática aún no soportada: vigas continuas con cargas distribuidas en voladizo exterior fuera del tramo entre apoyos.'
+        );
+      }
+
+      const firstDist = model.loads.find(
+        (l): l is DistributedLoad => l.type === 'distributed'
+      );
+      const firstW = firstDist?.wStart ?? 0;
+
+      // H4 requires uniform distributed load over both spans between s1 and s3
       const isUniformOverBothSpans =
         model.loads.length > 0 &&
+        !hasPointLoad &&
+        !hasOverhangDistLoad &&
+        firstDist !== undefined &&
         model.loads.every(
           (l) =>
             l.type === 'distributed' &&
-            Math.abs(l.wStart - l.wEnd) < 1e-6
-        ) &&
-        model.loads.some(
-          (l) =>
-            l.type === 'distributed' &&
-            l.xStart <= s1.x + 1e-6 &&
-            l.xEnd >= s3.x - 1e-6
+            Math.abs(l.wStart - l.wEnd) <= LOAD_INTENSITY_TOLERANCE &&
+            Math.abs(l.wStart - firstW) <= LOAD_INTENSITY_TOLERANCE &&
+            Math.abs(l.xStart - minSupportX) <= LENGTH_TOLERANCE &&
+            Math.abs(l.xEnd - maxSupportX) <= LENGTH_TOLERANCE
         );
 
-      if (!areSpansEqual || !isUniformOverBothSpans) {
+      if (!areSpansEqual || (!isUniformOverBothSpans && !hasOverhangDistLoad && !hasOverhangPointLoad)) {
         errors.push(
           'Configuración hiperestática aún no soportada: vigas continuas con cargas puntuales, vanos desiguales o cargas parciales aún no están implementadas (solo Caso H4: dos vanos iguales con carga uniforme continua).'
         );

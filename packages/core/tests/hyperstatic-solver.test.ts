@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeBeam, calculateFlexuralRigidity } from '../src/index.js';
+import {
+  analyzeBeam,
+  calculateContinuousBeamReactions,
+  calculateFixedFixedReactions,
+  calculateFlexuralRigidity,
+  calculateProppedCantileverReactions,
+  LENGTH_TOLERANCE,
+  LOAD_INTENSITY_TOLERANCE,
+  SPAN_EQUALITY_TOLERANCE,
+  StructuralAnalysisError,
+  validateBeamModel,
+} from '../src/index.js';
 import type { BeamMaterial, BeamModel, BeamSection } from '../src/types.js';
 
 /**
@@ -456,6 +467,51 @@ describe('OptiSteel 2.0 — Solver Hiperestático (TDD Caso H1)', () => {
       expect(result.deflection.evaluate(6.0)).toBeCloseTo(0.0, 9);
       expect(result.deflection.evaluateSlope(6.0)).toBeCloseTo(0.0, 9);
     });
+
+    it('T-H3-DIDACTIC-ORDER-01: Invariancia del informe didáctico H3 ante permutación de apoyos ([S2, S1] vs [S1, S2])', () => {
+      const normalResult = analyzeBeam(h3Model);
+      const reversedH3Model: BeamModel = {
+        ...h3Model,
+        id: 'H3-reversed-supports',
+        supports: [
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'B (Empotramiento derecho)' },
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento izquierdo)' },
+        ],
+      };
+      const reversedResult = analyzeBeam(reversedH3Model);
+
+      const repNormal = normalResult.didacticReport!;
+      const repReversed = reversedResult.didacticReport!;
+
+      expect(repNormal.caseId).toBe('H3');
+      expect(repReversed.caseId).toBe('H3');
+
+      // Paso 1: etiquetas físicas de apoyos A y B con coordenadas correctas
+      const step1Normal = repNormal.steps.find((s) => s.stepNumber === 1);
+      const step1Reversed = repReversed.steps.find((s) => s.stepNumber === 1);
+      expect(step1Normal?.substitution).toContain('Apoyo A (x=0) aporta [RA, MA]');
+      expect(step1Reversed?.substitution).toContain('Apoyo A (x=0) aporta [RA, MA]');
+      expect(step1Normal?.substitution).toContain('Apoyo B (x=6m) aporta [RB, MB]');
+      expect(step1Reversed?.substitution).toContain('Apoyo B (x=6m) aporta [RB, MB]');
+
+      // Paso 3: momentos reactivos de empotramiento perfecto
+      const step3Normal = repNormal.steps.find((s) => s.stepNumber === 3);
+      const step3Reversed = repReversed.steps.find((s) => s.stepNumber === 3);
+      expect(step3Normal?.result).toBe(step3Reversed?.result);
+      expect(step3Reversed?.result).toContain('MA = 36.000 kN·m (+CCW)');
+      expect(step3Reversed?.result).toContain('MB = -36.000 kN·m (-CW)');
+
+      // Paso 4: reacciones verticales
+      const step4Normal = repNormal.steps.find((s) => s.stepNumber === 4);
+      const step4Reversed = repReversed.steps.find((s) => s.stepNumber === 4);
+      expect(step4Normal?.result).toBe(step4Reversed?.result);
+      expect(step4Reversed?.result).toContain('RA = 36.000 kN (↑)');
+      expect(step4Reversed?.result).toContain('RB = 36.000 kN (↑)');
+
+      // Conclusiones equivalentes
+      expect(repReversed.conclusions).toEqual(repNormal.conclusions);
+      expect(repReversed.compatibilityConditions).toEqual(repNormal.compatibilityConditions);
+    });
   });
 
   // ===========================================================================
@@ -697,13 +753,349 @@ describe('OptiSteel 2.0 — Solver Hiperestático (TDD Caso H1)', () => {
       expect(report.steps[0]?.title).toContain('Grado de Hiperestaticidad');
       expect(report.steps[0]?.result).toContain('RB');
 
-      // Paso 5: Reacción RB
+      // Paso 2: Estructura primaria con posición del empotramiento
+      expect(report.primaryStructure).toContain('x = 0 m');
+      const step2 = report.steps.find((s) => s.stepNumber === 2);
+      expect(step2?.formulation).toContain('x = 0 m');
+      expect(step2?.substitution).toContain('x = 0 m');
+
+      // Paso 4: Deflexión primaria y flexibilidad
+      const step4 = report.steps.find((s) => s.stepNumber === 4);
+      expect(step4?.substitution).toContain('106.667 / EI');
+      expect(step4?.result).toContain('106.667 / EI');
+      expect(step4?.result).toContain('21.333 / EI');
+
+      // Paso 5: Reacción RB con sustitución analítica real sin artificios circulares
       const rStep = report.steps.find((s) => s.stepNumber === 5);
       expect(rStep?.result).toContain('5.000 kN');
+
+      // Verifica que la sustitución refleje la ecuación de compatibilidad real:
+      // RB = (106.667 / EI) / (21.333 / EI) = 106.667 / 21.333
+      expect(rStep?.substitution).toContain('106.667');
+      expect(rStep?.substitution).toContain('21.333');
+      expect(rStep?.substitution).toContain('106.667 / 21.333');
+
+      // Verificación estricta: NO debe contener el artificio circular f_BB / f_BB ni usar RB como numerador
+      expect(rStep?.substitution).not.toContain('f_BB) / f_BB');
+      expect(rStep?.substitution).not.toContain('(5.0000 · f_BB)');
+      expect(rStep?.substitution).not.toContain('(5.000 · f_BB)');
 
       // Verificación de comprobaciones cinemáticas
       const checkStep = report.steps.find((s) => s.check !== undefined);
       expect(checkStep?.check?.isVerified).toBe(true);
+    });
+
+    it('T-DID-01B: Reporte didáctico H1 con carga excéntrica y dimensiones variables actualiza sustitución de compatibilidad', () => {
+      // Viga L = 6 m, empotrada en x = 0, rodillo en x = 6 m, P = 20 kN en x = 2 m (a = 2 m, b = 4 m)
+      const eccentricH1Model: BeamModel = {
+        ...h1Model,
+        id: 'H1-eccentric-point-load',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Rodillo)' },
+        ],
+        loads: [
+          { id: 'P1', type: 'point', x: 2.0, P: 20.0, label: 'P = 20 kN' },
+        ],
+      };
+
+      const result = analyzeBeam(eccentricH1Model);
+      expect(result.didacticReport).toBeDefined();
+      const report = result.didacticReport!;
+
+      // Teórico:
+      // a = 2 m, spanL = 6 m
+      // delta_B0 = 20 * 2^2 * (3*6 - 2) / 6 = 20 * 4 * 16 / 6 = 1280 / 6 = 213.333 / EI
+      // f_BB = 6^3 / 3 = 72.000 / EI
+      // RB = 213.333 / 72.000 = 80 / 27 ≈ 2.96296 kN
+      const step4 = report.steps.find((s) => s.stepNumber === 4);
+      expect(step4?.substitution).toContain('213.333 / EI');
+      expect(step4?.result).toContain('72.000 / EI');
+
+      const step5 = report.steps.find((s) => s.stepNumber === 5);
+      expect(step5?.substitution).toContain('213.333');
+      expect(step5?.substitution).toContain('72.000');
+      expect(step5?.substitution).toContain('213.333 / 72.000');
+      expect(step5?.result).toContain('2.963 kN');
+      expect(step5?.substitution).not.toContain('f_BB) / f_BB');
+    });
+
+    it('T-DID-01C: Reporte didáctico H1 con múltiples cargas puntuales acumula deflexiones primarias en compatibilidad', () => {
+      // Viga L = 4 m, empotrada en x = 0, rodillo en x = 4 m
+      // P1 = 10 kN en x = 1 m, P2 = 16 kN en x = 2 m
+      const multiLoadH1Model: BeamModel = {
+        ...h1Model,
+        id: 'H1-multi-point-load',
+        length: 4.0,
+        loads: [
+          { id: 'P1', type: 'point', x: 1.0, P: 10.0, label: 'P1' },
+          { id: 'P2', type: 'point', x: 2.0, P: 16.0, label: 'P2' },
+        ],
+      };
+
+      const result = analyzeBeam(multiLoadH1Model);
+      const report = result.didacticReport!;
+
+      // delta_1 = 10 * 1^2 * (12 - 1) / 6 = 110 / 6 ≈ 18.333 / EI
+      // delta_2 = 16 * 2^2 * (12 - 2) / 6 = 640 / 6 ≈ 106.667 / EI
+      // delta_total = 18.333 + 106.667 = 125.000 / EI
+      // f_BB = 64 / 3 ≈ 21.333 / EI
+      // RB = 125.000 / 21.333 ≈ 5.859 kN
+      const step4 = report.steps.find((s) => s.stepNumber === 4);
+      expect(step4?.substitution).toContain('18.333 / EI');
+      expect(step4?.substitution).toContain('106.667 / EI');
+      expect(step4?.substitution).toContain('125.000 / EI');
+
+      const step5 = report.steps.find((s) => s.stepNumber === 5);
+      expect(step5?.substitution).toContain('125.000');
+      expect(step5?.substitution).toContain('21.333');
+      expect(step5?.substitution).toContain('125.000 / 21.333');
+      expect(step5?.result).toContain('5.859 kN');
+      expect(step5?.substitution).not.toContain('f_BB) / f_BB');
+    });
+
+    it('T-DID-01D: Reporte didáctico H1 con empotramiento trasladado describe la posición real del apoyo', () => {
+      // Viga con empotramiento en x = 1 m y rodillo en x = 5 m (L = 4 m entre apoyos)
+      const offsetH1Model: BeamModel = {
+        ...h1Model,
+        id: 'H1-offset-support',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 1.0, label: 'Empotramiento x=1' },
+          { id: 'S2', type: 'roller', x: 5.0, label: 'Rodillo x=5' },
+        ],
+        loads: [
+          { id: 'P1', type: 'point', x: 3.0, P: 16.0, label: 'P en x=3' },
+        ],
+      };
+
+      const result = analyzeBeam(offsetH1Model);
+      const report = result.didacticReport!;
+
+      // Estructura primaria debe indicar empotrada en x = 1 m
+      expect(report.primaryStructure).toContain('x = 1 m');
+      const step2 = report.steps.find((s) => s.stepNumber === 2);
+      expect(step2?.formulation).toContain('x = 1 m');
+      expect(step2?.substitution).toContain('x = 1 m');
+
+      // Brazo a = 3 - 1 = 2 m respecto a sFixed (x=1)
+      const step4 = report.steps.find((s) => s.stepNumber === 4);
+      expect(step4?.substitution).toContain('a=2 m');
+      expect(step4?.substitution).toContain('106.667 / EI');
+
+      const step5 = report.steps.find((s) => s.stepNumber === 5);
+      expect(step5?.substitution).toContain('106.667 / 21.333');
+      expect(step5?.result).toContain('5.000 kN');
+    });
+
+    it('T-DID-01E: Reporte didáctico H1 refleja correctamente signo y dirección de RB (positiva/ascendente, negativa/descendente y nula)', () => {
+      // 1. Reacción positiva (carga descendente P = 16 kN)
+      const posResult = analyzeBeam(h1Model);
+      const posStep5 = posResult.didacticReport?.steps.find((s) => s.stepNumber === 5);
+      expect(posStep5?.result).toBe('RB = 5.000 kN (positiva, ascendente ↑)');
+
+      // 2. Reacción negativa (carga ascendente P = -16 kN)
+      const negModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-negative-load',
+        loads: [{ id: 'P1', type: 'point', x: 2.0, P: -16.0 }],
+      };
+      const negResult = analyzeBeam(negModel);
+      expect(negResult.equilibrium.isBalanced).toBe(true);
+      const negStep5 = negResult.didacticReport?.steps.find((s) => s.stepNumber === 5);
+      expect(negStep5?.result).toBe('RB = -5.000 kN (negativa, descendente ↓)');
+
+      // 3. Reacción nula (cargas autoequilibradas P1 = +16 kN, P2 = -16 kN en x = 2 m)
+      const zeroModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-zero-load',
+        loads: [
+          { id: 'P1', type: 'point', x: 2.0, P: 16.0 },
+          { id: 'P2', type: 'point', x: 2.0, P: -16.0 },
+        ],
+      };
+      const zeroResult = analyzeBeam(zeroModel);
+      expect(zeroResult.equilibrium.isBalanced).toBe(true);
+      const zeroStep5 = zeroResult.didacticReport?.steps.find((s) => s.stepNumber === 5);
+      expect(zeroStep5?.result).toBe('RB = 0.000 kN (reacción nula)');
+      expect(zeroStep5?.result).not.toContain('ascendente');
+      expect(zeroStep5?.result).not.toContain('descendente');
+      expect(zeroStep5?.result).not.toContain('↑');
+      expect(zeroStep5?.result).not.toContain('↓');
+
+      // 4. Reacción pequeña no nula (x = 0.001 m, RB ≈ 0.0000015 kN):
+      // No debe mostrar "0.000 kN" mientras afirma "(positiva, ascendente ↑)",
+      // ni debe etiquetarse falsamente como "(reacción nula)".
+      const tinyModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-tiny-reaction',
+        loads: [{ id: 'P1', type: 'point', x: 0.001, P: 16.0 }],
+      };
+      const tinyResult = analyzeBeam(tinyModel);
+      const tinyStep5 = tinyResult.didacticReport?.steps.find((s) => s.stepNumber === 5);
+      expect(tinyStep5?.result).toBe('RB = 0.0000015 kN (positiva, ascendente ↑)');
+      expect(tinyStep5?.result).not.toContain('reacción nula');
+      expect(tinyStep5?.result).not.toBe('RB = 0.000 kN (positiva, ascendente ↑)');
+    });
+
+    it('T-H1-REJ-01: Rechazo explícito de cargas puntuales en voladizo exterior fuera del tramo entre apoyos en H1', () => {
+      // Caso 1: Viga L = 6 m, empotramiento en x = 0 m, rodillo en x = 4 m, carga puntual en voladizo exterior en x = 5 m
+      const overhangRightModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-overhang-right',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento x=0)' },
+          { id: 'S2', type: 'roller', x: 4.0, label: 'B (Rodillo x=4)' },
+        ],
+        loads: [{ id: 'P1', type: 'point', x: 5.0, P: 16.0, label: 'P en x=5' }],
+      };
+
+      const valRight = validateBeamModel(overhangRightModel);
+      expect(valRight.isValid).toBe(false);
+      expect(valRight.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(overhangRightModel)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(overhangRightModel)).toThrow(
+        /voladizo exterior/i
+      );
+
+      // Caso 2: Viga L = 7 m, rodillo en x = 2 m, empotramiento en x = 6 m, carga puntual en voladizo exterior en x = 1 m
+      const overhangLeftModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-overhang-left',
+        length: 7.0,
+        supports: [
+          { id: 'S1', type: 'roller', x: 2.0, label: 'B (Rodillo x=2)' },
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'A (Empotramiento x=6)' },
+        ],
+        loads: [{ id: 'P1', type: 'point', x: 1.0, P: 16.0, label: 'P en x=1' }],
+      };
+
+      const valLeft = validateBeamModel(overhangLeftModel);
+      expect(valLeft.isValid).toBe(false);
+      expect(valLeft.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(overhangLeftModel)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(overhangLeftModel)).toThrow(
+        /voladizo exterior/i
+      );
+
+      // Caso 3: Cargas en las posiciones límite válidas de los apoyos (x = 0 m y x = 4 m) son aceptadas
+      const boundaryModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-boundary-valid',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento x=0)' },
+          { id: 'S2', type: 'roller', x: 4.0, label: 'B (Rodillo x=4)' },
+        ],
+        loads: [
+          { id: 'P1', type: 'point', x: 0.0, P: 10.0 },
+          { id: 'P2', type: 'point', x: 4.0, P: 10.0 },
+        ],
+      };
+      const valBoundary = validateBeamModel(boundaryModel);
+      expect(valBoundary.isValid).toBe(true);
+      const resBoundary = analyzeBeam(boundaryModel);
+      expect(resBoundary.equilibrium.isBalanced).toBe(true);
+    });
+
+    it('T-H1-BOUND-01: Validez numérica y didáctica de carga puntual exactamente sobre empotramiento y sobre rodillo', () => {
+      // 1. Carga puntual exactamente sobre el empotramiento (x = 0, P = 16 kN)
+      const loadAtFixedModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-load-at-fixed',
+        loads: [{ id: 'P1', type: 'point', x: 0.0, P: 16.0 }],
+      };
+      const resFixed = analyzeBeam(loadAtFixedModel);
+      expect(resFixed.equilibrium.isBalanced).toBe(true);
+      const rFixedAtFixed = resFixed.reactions.find((r) => r.supportId === 'S1')!;
+      const rRollerAtFixed = resFixed.reactions.find((r) => r.supportId === 'S2')!;
+      // Toda la carga baja directo al empotramiento
+      expect(rFixedAtFixed.Ry).toBeCloseTo(16.0, 6);
+      expect(rFixedAtFixed.Mr).toBeCloseTo(0.0, 6);
+      expect(rRollerAtFixed.Ry).toBeCloseTo(0.0, 6);
+
+      const repFixed = resFixed.didacticReport!;
+      const step4Fixed = repFixed.steps.find((s) => s.stepNumber === 4);
+      expect(step4Fixed?.result).toContain('0.000 / EI');
+      const step5Fixed = repFixed.steps.find((s) => s.stepNumber === 5);
+      expect(step5Fixed?.result).toBe('RB = 0.000 kN (reacción nula)');
+      const step6Fixed = repFixed.steps.find((s) => s.stepNumber === 6);
+      expect(step6Fixed?.result).toContain('RA = 16.000 kN (↑)');
+      expect(step6Fixed?.result).toContain('MA = 0.000 kN·m');
+
+      // 2. Carga puntual exactamente sobre el rodillo (x = 4, P = 16 kN)
+      const loadAtRollerModel: BeamModel = {
+        ...h1Model,
+        id: 'H1-load-at-roller',
+        loads: [{ id: 'P1', type: 'point', x: 4.0, P: 16.0 }],
+      };
+      const resRoller = analyzeBeam(loadAtRollerModel);
+      expect(resRoller.equilibrium.isBalanced).toBe(true);
+      const rFixedAtRoller = resRoller.reactions.find((r) => r.supportId === 'S1')!;
+      const rRollerAtRoller = resRoller.reactions.find((r) => r.supportId === 'S2')!;
+      // Toda la carga baja directo al rodillo
+      expect(rFixedAtRoller.Ry).toBeCloseTo(0.0, 6);
+      expect(rFixedAtRoller.Mr).toBeCloseTo(0.0, 6);
+      expect(rRollerAtRoller.Ry).toBeCloseTo(16.0, 6);
+
+      const repRoller = resRoller.didacticReport!;
+      const step4Roller = repRoller.steps.find((s) => s.stepNumber === 4);
+      expect(step4Roller?.result).toContain('341.333 / EI');
+      const step5Roller = repRoller.steps.find((s) => s.stepNumber === 5);
+      expect(step5Roller?.result).toBe('RB = 16.000 kN (positiva, ascendente ↑)');
+      const step6Roller = repRoller.steps.find((s) => s.stepNumber === 6);
+      expect(step6Roller?.result).toContain('RA = 0.000 kN (↑)');
+      expect(step6Roller?.result).toContain('MA = 0.000 kN·m');
+    });
+
+    it('T-H1-TOL-01: Coherencia de tolerancia LENGTH_TOLERANCE entre validador y solver en límites de vano', () => {
+      // 1. Carga dentro de LENGTH_TOLERANCE (x = 4 + 1e-12 m <= 4 + 1e-9 m)
+      const modelNearUnder: BeamModel = {
+        ...h1Model,
+        id: 'H1-near-under-tol',
+        length: 5.0,
+        loads: [{ id: 'P1', type: 'point', x: 4.0 + 1e-12, P: 16.0 }],
+      };
+      const valUnder = validateBeamModel(modelNearUnder);
+      expect(valUnder.isValid).toBe(true);
+      const resUnder = analyzeBeam(modelNearUnder);
+      expect(resUnder.equilibrium.isBalanced).toBe(true);
+      const calcUnder = calculateProppedCantileverReactions(modelNearUnder);
+      expect(calcUnder.equilibrium.isBalanced).toBe(true);
+
+      // 2. Carga fuera de LENGTH_TOLERANCE (x = 4 + 1e-8 m > 4 + 1e-9 m)
+      const modelNearOver: BeamModel = {
+        ...h1Model,
+        id: 'H1-near-over-tol',
+        length: 5.0,
+        loads: [{ id: 'P1', type: 'point', x: 4.0 + 1e-8, P: 16.0 }],
+      };
+      const valOver = validateBeamModel(modelNearOver);
+      expect(valOver.isValid).toBe(false);
+      expect(valOver.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(modelNearOver)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(modelNearOver)).toThrow(/voladizo exterior/i);
+
+      // 3. Cargas ligeramente dentro del vano
+      const modelInside1: BeamModel = {
+        ...h1Model,
+        id: 'H1-inside-near-fixed',
+        loads: [{ id: 'P1', type: 'point', x: 0.001, P: 16.0 }],
+      };
+      const resInside1 = analyzeBeam(modelInside1);
+      expect(resInside1.equilibrium.isBalanced).toBe(true);
+      expect(resInside1.reactions.find((r) => r.supportId === 'S2')?.Ry).toBeCloseTo(0.0000015, 6);
+
+      const modelInside2: BeamModel = {
+        ...h1Model,
+        id: 'H1-inside-near-roller',
+        loads: [{ id: 'P1', type: 'point', x: 3.999, P: 16.0 }],
+      };
+      const resInside2 = analyzeBeam(modelInside2);
+      expect(resInside2.equilibrium.isBalanced).toBe(true);
+      expect(resInside2.reactions.find((r) => r.supportId === 'S2')?.Ry).toBeCloseTo(15.994, 3);
     });
 
     it('T-DID-02: Genera reporte didáctico para H2 con deducción de flexibilidad y equilibrio', () => {
@@ -892,10 +1284,1305 @@ describe('OptiSteel 2.0 — Solver Hiperestático (TDD Caso H1)', () => {
       // En conclusiones
       const deflConclusion = report.conclusions.find((c) => c.includes('Flechas máximas simétricas'));
       expect(deflConclusion).toBeDefined();
-      expect(deflConclusion).toContain('x₁ = 1.686 m (Vano 1) y x₂ = 6.314 m (Vano 2)');
+    });
+  });
+
+  // ===========================================================================
+  // BLOQUE 9: CORRECCIÓN CONTROLADA H2 (SIMETRÍA, CARGAS DISTRIBUIDAS Y REPORTE DIDÁCTICO)
+  // ===========================================================================
+  describe('Bloque 9: Corrección Controlada H2 (Simetría, Cargas Distribuidas y Reporte Didáctico)', () => {
+    // -------------------------------------------------------------------------
+    // 1. Pruebas obligatorias de simetría física y matemática (L = 6 m)
+    // -------------------------------------------------------------------------
+
+    it('T-H2-SYM-01: Simetría obligatoria — Carga triangular creciente (0->10) vs reflejada decreciente (10->0)', () => {
+      // Caso Directo: Empotramiento en x=0, Rodillo en x=6, Carga triangular creciente w: 0 -> 10 kN/m
+      // Derivación analítica:
+      // W = 0.5 * 10 * 6 = 30 kN, centroide en x = 4.0 m
+      // delta_B0 = (1/6EI) \int_0^6 (10/6 a) a^2 (18 - a) da = 1188 / EI
+      // f_BB = 6^3 / (3EI) = 72 / EI
+      // RB = 1188 / 72 = 16.5 kN (↑)
+      // RA = 30 - 16.5 = 13.5 kN (↑)
+      // MA = 30 * 4 - 16.5 * 6 = 120 - 99 = +21.0 kN·m (+CCW)
+      const directModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-sym-triangular-direct',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento x=0)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Rodillo x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 0.0,
+            wEnd: 10.0,
+            label: 'w triangular creciente',
+          },
+        ],
+      };
+      const directRes = analyzeBeam(directModel);
+      expect(directRes.equilibrium.isBalanced).toBe(true);
+
+      const rFixedDirect = directRes.reactions.find((r) => r.supportId === 'S1')!;
+      const rRollerDirect = directRes.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRollerDirect.Ry).toBeCloseTo(16.5, 4);
+      expect(rFixedDirect.Ry).toBeCloseTo(13.5, 4);
+      expect(rFixedDirect.Mr).toBeCloseTo(21.0, 4);
+
+      // Caso Reflejado: Rodillo en x=0, Empotramiento en x=6, Carga triangular decreciente w: 10 -> 0 kN/m
+      // Por simetría física exacta:
+      // R_roller(x=0) = R_roller_direct = 16.5 kN (↑)
+      // R_fixed(x=6) = R_fixed_direct = 13.5 kN (↑)
+      // M_fixed(x=6) = -M_fixed_direct = -21.0 kN·m (-CW)
+      const reflectedModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-sym-triangular-reflected',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'roller', x: 0.0, label: 'B (Rodillo x=0)' },
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'A (Empotramiento x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 10.0,
+            wEnd: 0.0,
+            label: 'w triangular decreciente',
+          },
+        ],
+      };
+      const reflRes = analyzeBeam(reflectedModel);
+      expect(reflRes.equilibrium.isBalanced).toBe(true);
+
+      const rRollerRefl = reflRes.reactions.find((r) => r.supportId === 'S1')!;
+      const rFixedRefl = reflRes.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRollerRefl.Ry).toBeCloseTo(16.5, 4);
+      expect(rFixedRefl.Ry).toBeCloseTo(13.5, 4);
+      expect(rFixedRefl.Mr).toBeCloseTo(-21.0, 4);
+
+      // Comprobación cruzada de simetría física exacta
+      expect(rRollerRefl.Ry).toBeCloseTo(rRollerDirect.Ry, 6);
+      expect(rFixedRefl.Ry).toBeCloseTo(rFixedDirect.Ry, 6);
+      expect(rFixedRefl.Mr!).toBeCloseTo(-rFixedDirect.Mr!, 6);
+    });
+
+    it('T-H2-SYM-02: Simetría para carga triangular decreciente en apoyo izquierdo vs creciente en apoyo derecho', () => {
+      // Caso Directo 2: Empotramiento en x=0, Rodillo en x=6, Carga triangular decreciente w: 10 -> 0 kN/m
+      // Derivación analítica:
+      // a es distancia desde empotramiento x=0: w(a) = 10 - 10/6 a
+      // \int_0^6 (10 - 10/6 a) a^2 (18 - a) da = 2592
+      // delta_B0_num = 2592 / 6 = 432 / EI
+      // f_BB_num = 6^3 / 3 = 72 / EI
+      // RB = 432 / 72 = 6.0 kN (↑)
+      // RA = 30 - 6.0 = 24.0 kN (↑)
+      // Centroide en x = 2.0 m: M_cargas = 30 * 2 = 60 kN·m
+      // MA = 60 - 6.0 * 6 = 60 - 36 = +24.0 kN·m (+CCW)
+      const directModel2: BeamModel = {
+        ...h2Model,
+        id: 'H2-sym-triangular-decrec-left',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento x=0)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Rodillo x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 10.0,
+            wEnd: 0.0,
+            label: 'w triangular decreciente',
+          },
+        ],
+      };
+      const directRes2 = analyzeBeam(directModel2);
+      expect(directRes2.equilibrium.isBalanced).toBe(true);
+
+      const rFixedDirect2 = directRes2.reactions.find((r) => r.supportId === 'S1')!;
+      const rRollerDirect2 = directRes2.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRollerDirect2.Ry).toBeCloseTo(6.0, 4);
+      expect(rFixedDirect2.Ry).toBeCloseTo(24.0, 4);
+      expect(rFixedDirect2.Mr).toBeCloseTo(24.0, 4);
+
+      // Caso Reflejado 2: Rodillo en x=0, Empotramiento en x=6, Carga triangular creciente w: 0 -> 10 kN/m
+      // Por simetría física:
+      // R_roller(x=0) = 6.0 kN (↑)
+      // R_fixed(x=6) = 24.0 kN (↑)
+      // M_fixed(x=6) = -24.0 kN·m (-CW)
+      const reflectedModel2: BeamModel = {
+        ...h2Model,
+        id: 'H2-sym-triangular-crec-right',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'roller', x: 0.0, label: 'B (Rodillo x=0)' },
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'A (Empotramiento x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 0.0,
+            wEnd: 10.0,
+            label: 'w triangular creciente',
+          },
+        ],
+      };
+      const reflRes2 = analyzeBeam(reflectedModel2);
+      expect(reflRes2.equilibrium.isBalanced).toBe(true);
+
+      const rRollerRefl2 = reflRes2.reactions.find((r) => r.supportId === 'S1')!;
+      const rFixedRefl2 = reflRes2.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRollerRefl2.Ry).toBeCloseTo(6.0, 4);
+      expect(rFixedRefl2.Ry).toBeCloseTo(24.0, 4);
+      expect(rFixedRefl2.Mr).toBeCloseTo(-24.0, 4);
+
+      expect(rRollerRefl2.Ry).toBeCloseTo(rRollerDirect2.Ry, 6);
+      expect(rFixedRefl2.Ry).toBeCloseTo(rFixedDirect2.Ry, 6);
+      expect(rFixedRefl2.Mr!).toBeCloseTo(-rFixedDirect2.Mr!, 6);
+    });
+
+    it('T-H2-SYM-03: Simetría para carga trapezoidal creciente (4->10) y decreciente (10->4)', () => {
+      // Caso Directo: Empotramiento en x=0, Rodillo en x=6, w: 4 -> 10 kN/m
+      // Superposición analítica:
+      // Uniforme 4 kN/m: R_roller = 3/8*4*6 = 9.0 kN, R_fixed = 15.0 kN, M_fixed = +18.0 kN·m
+      // Triangular 0->6 kN/m: R_roller = (16.5/30)*18 = 9.9 kN, R_fixed = 8.1 kN, M_fixed = +12.6 kN·m
+      // Total: R_roller = 18.9 kN (↑), R_fixed = 23.1 kN (↑), M_fixed = +30.6 kN·m (+CCW)
+      const trapDirectModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-sym-trapezoidal-direct',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento x=0)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Rodillo x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 4.0,
+            wEnd: 10.0,
+            label: 'w trapezoidal 4->10',
+          },
+        ],
+      };
+      const trapDirectRes = analyzeBeam(trapDirectModel);
+      expect(trapDirectRes.equilibrium.isBalanced).toBe(true);
+
+      const rFixedTrap = trapDirectRes.reactions.find((r) => r.supportId === 'S1')!;
+      const rRollerTrap = trapDirectRes.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRollerTrap.Ry).toBeCloseTo(18.9, 4);
+      expect(rFixedTrap.Ry).toBeCloseTo(23.1, 4);
+      expect(rFixedTrap.Mr).toBeCloseTo(30.6, 4);
+
+      // Caso Reflejado: Rodillo en x=0, Empotramiento en x=6, w: 10 -> 4 kN/m
+      // Por simetría física:
+      // R_roller(x=0) = 18.9 kN (↑)
+      // R_fixed(x=6) = 23.1 kN (↑)
+      // M_fixed(x=6) = -30.6 kN·m (-CW)
+      const trapReflModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-sym-trapezoidal-reflected',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'roller', x: 0.0, label: 'B (Rodillo x=0)' },
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'A (Empotramiento x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 10.0,
+            wEnd: 4.0,
+            label: 'w trapezoidal 10->4',
+          },
+        ],
+      };
+      const trapReflRes = analyzeBeam(trapReflModel);
+      expect(trapReflRes.equilibrium.isBalanced).toBe(true);
+
+      const rRollerTrapRefl = trapReflRes.reactions.find((r) => r.supportId === 'S1')!;
+      const rFixedTrapRefl = trapReflRes.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRollerTrapRefl.Ry).toBeCloseTo(18.9, 4);
+      expect(rFixedTrapRefl.Ry).toBeCloseTo(23.1, 4);
+      expect(rFixedTrapRefl.Mr).toBeCloseTo(-30.6, 4);
+
+      expect(rRollerTrapRefl.Ry).toBeCloseTo(rRollerTrap.Ry, 6);
+      expect(rFixedTrapRefl.Ry).toBeCloseTo(rFixedTrap.Ry, 6);
+      expect(rFixedTrapRefl.Mr!).toBeCloseTo(-rFixedTrap.Mr!, 6);
+    });
+
+    it('T-H2-SYM-04: Carga uniforme de control con empotramiento a la izquierda y a la derecha', () => {
+      // 1. Empotramiento a la izquierda (x=0 fixed, x=6 roller)
+      const unifLeftModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-control-uniform-left',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento x=0)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Rodillo x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 10.0,
+            wEnd: 10.0,
+          },
+        ],
+      };
+      const resLeft = analyzeBeam(unifLeftModel);
+      expect(resLeft.equilibrium.isBalanced).toBe(true);
+      const rLeftFixed = resLeft.reactions.find((r) => r.supportId === 'S1')!;
+      const rLeftRoller = resLeft.reactions.find((r) => r.supportId === 'S2')!;
+      expect(rLeftRoller.Ry).toBeCloseTo(22.5, 4); // 3wL/8
+      expect(rLeftFixed.Ry).toBeCloseTo(37.5, 4);  // 5wL/8
+      expect(rLeftFixed.Mr).toBeCloseTo(45.0, 4);  // +wL^2/8 (+CCW)
+
+      // 2. Empotramiento a la derecha (x=0 roller, x=6 fixed)
+      const unifRightModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-control-uniform-right',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'roller', x: 0.0, label: 'B (Rodillo x=0)' },
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'A (Empotramiento x=6)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 10.0,
+            wEnd: 10.0,
+          },
+        ],
+      };
+      const resRight = analyzeBeam(unifRightModel);
+      expect(resRight.equilibrium.isBalanced).toBe(true);
+      const rRightRoller = resRight.reactions.find((r) => r.supportId === 'S1')!;
+      const rRightFixed = resRight.reactions.find((r) => r.supportId === 'S2')!;
+      expect(rRightRoller.Ry).toBeCloseTo(22.5, 4); // 3wL/8
+      expect(rRightFixed.Ry).toBeCloseTo(37.5, 4);  // 5wL/8
+      expect(rRightFixed.Mr).toBeCloseTo(-45.0, 4); // -wL^2/8 (-CW)
+
+      expect(rRightRoller.Ry).toBeCloseTo(rLeftRoller.Ry, 6);
+      expect(rRightFixed.Ry).toBeCloseTo(rLeftFixed.Ry, 6);
+      expect(rRightFixed.Mr!).toBeCloseTo(-rLeftFixed.Mr!, 6);
+    });
+
+    // -------------------------------------------------------------------------
+    // 2. Rechazo explícito de cargas distribuidas que exceden el tramo soportado
+    // -------------------------------------------------------------------------
+
+    it('T-H2-REJ-01: Rechazo explícito de cargas distribuidas en voladizo exterior fuera del tramo soportado', () => {
+      // Caso 1: Carga distribuida que excede el extremo derecho del vano soportado
+      // Viga L = 8 m, apoyos en x = 0 m (fixed) y x = 5 m (roller). Carga de 0 a 7 m.
+      const modelExceedRight: BeamModel = {
+        ...h2Model,
+        id: 'H2-rej-exceed-right',
+        length: 8.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A' },
+          { id: 'S2', type: 'roller', x: 5.0, label: 'B' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 7.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const valRight = validateBeamModel(modelExceedRight);
+      expect(valRight.isValid).toBe(false);
+      expect(valRight.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(modelExceedRight)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(modelExceedRight)).toThrow(
+        /voladizo exterior/i
+      );
+
+      // Caso 2: Carga distribuida que excede el extremo izquierdo del vano soportado
+      // Viga L = 8 m, apoyos en x = 2 m (roller) y x = 8 m (fixed). Carga de 1 a 6 m.
+      const modelExceedLeft: BeamModel = {
+        ...h2Model,
+        id: 'H2-rej-exceed-left',
+        length: 8.0,
+        supports: [
+          { id: 'S1', type: 'roller', x: 2.0, label: 'B' },
+          { id: 'S2', type: 'fixed', x: 8.0, label: 'A' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 1.0, xEnd: 6.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const valLeft = validateBeamModel(modelExceedLeft);
+      expect(valLeft.isValid).toBe(false);
+      expect(valLeft.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(modelExceedLeft)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(modelExceedLeft)).toThrow(
+        /voladizo exterior/i
+      );
+
+      // Caso 3: Carga distribuida totalmente exterior al tramo soportado
+      // Viga L = 8 m, apoyos en x = 0 m y x = 4 m. Carga de 5 a 7 m.
+      const modelTotallyOutside: BeamModel = {
+        ...h2Model,
+        id: 'H2-rej-totally-outside',
+        length: 8.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A' },
+          { id: 'S2', type: 'roller', x: 4.0, label: 'B' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 5.0, xEnd: 7.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const valOutside = validateBeamModel(modelTotallyOutside);
+      expect(valOutside.isValid).toBe(false);
+      expect(valOutside.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(modelTotallyOutside)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(modelTotallyOutside)).toThrow(
+        /voladizo exterior/i
+      );
+
+      // Caso 4: Carga distribuida que cubre un tramo exterior y parte del interior
+      // Viga L = 8 m, apoyos en x = 2 m y x = 7 m. Carga de 1 a 4 m.
+      const modelCoverExteriorInterior: BeamModel = {
+        ...h2Model,
+        id: 'H2-rej-ext-int',
+        length: 8.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 2.0, label: 'A' },
+          { id: 'S2', type: 'roller', x: 7.0, label: 'B' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 1.0, xEnd: 4.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const valExtInt = validateBeamModel(modelCoverExteriorInterior);
+      expect(valExtInt.isValid).toBe(false);
+      expect(valExtInt.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      expect(() => analyzeBeam(modelCoverExteriorInterior)).toThrow(StructuralAnalysisError);
+      expect(() => calculateProppedCantileverReactions(modelCoverExteriorInterior)).toThrow(
+        /voladizo exterior/i
+      );
+
+      // Caso 5: Carga distribuida exactamente en los límites de los apoyos (válida)
+      // Viga L = 8 m, apoyos en x = 2 m y x = 6 m. Carga exactamente de 2 a 6 m.
+      const modelExactLimits: BeamModel = {
+        ...h2Model,
+        id: 'H2-val-exact-limits',
+        length: 8.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 2.0, label: 'A' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 2.0, xEnd: 6.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const valExact = validateBeamModel(modelExactLimits);
+      expect(valExact.isValid).toBe(true);
+      const resExact = analyzeBeam(modelExactLimits);
+      expect(resExact.equilibrium.isBalanced).toBe(true);
+
+      // Caso 6: Carga distribuida parcial y contenida estrictamente dentro del vano (válida)
+      // Viga L = 8 m, apoyos en x = 1 m y x = 7 m. Carga parcial de 2 a 5 m.
+      const modelPartialInside: BeamModel = {
+        ...h2Model,
+        id: 'H2-val-partial-inside',
+        length: 8.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 1.0, label: 'A' },
+          { id: 'S2', type: 'roller', x: 7.0, label: 'B' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 2.0, xEnd: 5.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const valPartial = validateBeamModel(modelPartialInside);
+      expect(valPartial.isValid).toBe(true);
+      const resPartial = analyzeBeam(modelPartialInside);
+      expect(resPartial.equilibrium.isBalanced).toBe(true);
+    });
+
+    // -------------------------------------------------------------------------
+    // 3. Verificación de no circularidad y exactitud didáctica en H2
+    // -------------------------------------------------------------------------
+
+    it('T-H2-DID-01: Reporte didáctico H2 sin tautología circular y con deducción analítica de deflexión primaria', () => {
+      // Viga L = 6 m, empotramiento en x=0, rodillo en x=6, carga parcial w = 10 kN/m en [0, 3] m
+      // Solución analítica de referencia:
+      // a \in [0, 3], w(a) = 10
+      // \int_0^3 10 a^2 (18 - a) da = 1417.5
+      // delta_B0_num = 1417.5 / 6 = 236.250 kN·m³
+      // f_BB_num = 6^3 / 3 = 72.000 m/kN
+      // RB = 236.250 / 72.000 = 3.28125 kN
+      const partialModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-didactic-partial-noncircular',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 3.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+      };
+      const res = analyzeBeam(partialModel);
+      expect(res.equilibrium.isBalanced).toBe(true);
+
+      const report = res.didacticReport!;
+      expect(report).toBeDefined();
+
+      const step3 = report.steps.find((s) => s.stepNumber === 3);
+      expect(step3).toBeDefined();
+
+      // 1. No debe contener sustitución circular tautológica tipo RB * f_BB
+      expect(step3?.substitution).not.toContain('· f_BB) / EI');
+      expect(step3?.substitution).not.toContain('3.2813 · f_BB');
+
+      // 2. Debe mostrar límites de integración explícitos del tramo [0.000, 3.000]
+      expect(step3?.substitution).toContain('0.000');
+      expect(step3?.substitution).toContain('3.000');
+
+      // 3. Debe mostrar el valor de deflexión primaria calculado independientemente de las cargas
+      expect(step3?.substitution).toContain('236.250 / EI');
+      expect(step3?.substitution).toContain('72.000 / EI');
+      expect(step3?.substitution).toContain('RB = δ_B0 / f_BB');
+      expect(step3?.result).toContain('3.281 kN');
+
+      // 4. Caso combinado: carga distribuida + puntual
+      const combModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-didactic-combined-noncircular',
+        length: 6.0,
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 6.0, wStart: 10.0, wEnd: 10.0 },
+          { id: 'P1', type: 'point', x: 3.0, P: 16.0 },
+        ],
+      };
+      const combRes = analyzeBeam(combModel);
+      const combStep3 = combRes.didacticReport?.steps.find((s) => s.stepNumber === 3);
+      expect(combStep3).toBeDefined();
+      expect(combStep3?.substitution).not.toContain('· f_BB) / EI');
+      // Debe contener la contribución de la puntual P=16 y de la distribuida w=10
+      expect(combStep3?.substitution).toContain('Carga puntual P = 16 kN');
+      expect(combStep3?.substitution).toContain('Carga distribuida [0, 6] m');
+      expect(combStep3?.substitution).toContain('δ_B0 = Σ δ_i =');
+    });
+
+    // -------------------------------------------------------------------------
+    // 4. Caso con geometría trasladada respecto al origen (origen arbitrario x != 0)
+    // -------------------------------------------------------------------------
+
+    it('T-H2-TRANS-01: Viga con apoyos trasladados respecto al origen (x != 0)', () => {
+      // Viga de longitud total 10 m
+      // Apoyo empotrado en x = 2.0 m, apoyo simple en x = 8.0 m (vano L = 6.0 m)
+      // Carga distribuida uniforme de 10 kN/m entre x = 2.0 m y x = 8.0 m
+      // Reacciones teóricas exactas:
+      // R_roller(x=8) = 3wL/8 = 3 * 10 * 6 / 8 = 22.5 kN (↑)
+      // R_fixed(x=2) = 5wL/8 = 5 * 10 * 6 / 8 = 37.5 kN (↑)
+      // M_fixed(x=2) = +wL^2/8 = +10 * 36 / 8 = +45.0 kN·m (+CCW)
+      const shiftedModel: BeamModel = {
+        ...h2Model,
+        id: 'H2-shifted-origin',
+        length: 10.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 2.0, label: 'A (Empotramiento x=2)' },
+          { id: 'S2', type: 'roller', x: 8.0, label: 'B (Rodillo x=8)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 2.0,
+            xEnd: 8.0,
+            wStart: 10.0,
+            wEnd: 10.0,
+            label: 'w en vano soportado',
+          },
+        ],
+      };
+
+      const val = validateBeamModel(shiftedModel);
+      expect(val.isValid).toBe(true);
+
+      const res = analyzeBeam(shiftedModel);
+      expect(res.equilibrium.isBalanced).toBe(true);
+
+      const rFixed = res.reactions.find((r) => r.supportId === 'S1')!;
+      const rRoller = res.reactions.find((r) => r.supportId === 'S2')!;
+
+      expect(rRoller.Ry).toBeCloseTo(22.5, 4);
+      expect(rFixed.Ry).toBeCloseTo(37.5, 4);
+      expect(rFixed.Mr).toBeCloseTo(45.0, 4);
+
+      // Comprobación didáctica de que las coordenadas reflejan x=2 y x=8
+      const rep = res.didacticReport!;
+      expect(rep.primaryStructure).toContain('x = 2 m');
+      expect(rep.compatibilityConditions[0]).toContain('x = 8 m');
+    });
+
+    // =========================================================================
+    // BLOQUE 10: VALIDACIÓN Y CONTROL DE LÍMITES PARA CASO H3 (VIGA BIEMPOTRADA)
+    // =========================================================================
+    describe('Bloque 10: Validación y Control de Límites para Caso H3 (Viga Biempotrada)', () => {
+      // 1. Rechazo explícito de cargas en voladizo exterior fuera del tramo entre empotramientos
+      it('T-H3-REJ-01: Rechazo explícito de cargas fuera del tramo entre empotramientos en H3', () => {
+        // Viga L = 8 m, empotramientos en x = 2 m y x = 6 m (vano soportado [2, 6])
+        const baseH3: BeamModel = {
+          ...h3Model,
+          id: 'H3-base-rej',
+          length: 8.0,
+          supports: [
+            { id: 'S1', type: 'fixed', x: 2.0, label: 'A (Empotramiento x=2)' },
+            { id: 'S2', type: 'fixed', x: 6.0, label: 'B (Empotramiento x=6)' },
+          ],
+          loads: [],
+        };
+
+        // Caso 1: Carga puntual exterior a la derecha (x = 7 m)
+        const modelPtRight: BeamModel = {
+          ...baseH3,
+          id: 'H3-rej-pt-right',
+          loads: [{ id: 'P1', type: 'point', x: 7.0, P: 20.0 }],
+        };
+        const valPtRight = validateBeamModel(modelPtRight);
+        expect(valPtRight.isValid).toBe(false);
+        expect(valPtRight.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+        expect(() => analyzeBeam(modelPtRight)).toThrow(StructuralAnalysisError);
+        expect(() => calculateFixedFixedReactions(modelPtRight)).toThrow(/voladizo exterior/i);
+
+        // Caso 2: Carga puntual exterior a la izquierda (x = 1 m)
+        const modelPtLeft: BeamModel = {
+          ...baseH3,
+          id: 'H3-rej-pt-left',
+          loads: [{ id: 'P1', type: 'point', x: 1.0, P: 20.0 }],
+        };
+        const valPtLeft = validateBeamModel(modelPtLeft);
+        expect(valPtLeft.isValid).toBe(false);
+        expect(valPtLeft.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+        expect(() => analyzeBeam(modelPtLeft)).toThrow(StructuralAnalysisError);
+        expect(() => calculateFixedFixedReactions(modelPtLeft)).toThrow(/voladizo exterior/i);
+
+        // Caso 3: Carga distribuida cuyo inicio queda fuera a la izquierda (xStart = 1, xEnd = 4)
+        const modelDistLeft: BeamModel = {
+          ...baseH3,
+          id: 'H3-rej-dist-left',
+          loads: [{ id: 'W1', type: 'distributed', xStart: 1.0, xEnd: 4.0, wStart: 10.0, wEnd: 10.0 }],
+        };
+        const valDistLeft = validateBeamModel(modelDistLeft);
+        expect(valDistLeft.isValid).toBe(false);
+        expect(valDistLeft.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+        expect(() => analyzeBeam(modelDistLeft)).toThrow(StructuralAnalysisError);
+        expect(() => calculateFixedFixedReactions(modelDistLeft)).toThrow(/voladizo exterior/i);
+
+        // Caso 4: Carga distribuida cuyo final queda fuera a la derecha (xStart = 4, xEnd = 7)
+        const modelDistRight: BeamModel = {
+          ...baseH3,
+          id: 'H3-rej-dist-right',
+          loads: [{ id: 'W1', type: 'distributed', xStart: 4.0, xEnd: 7.0, wStart: 10.0, wEnd: 10.0 }],
+        };
+        const valDistRight = validateBeamModel(modelDistRight);
+        expect(valDistRight.isValid).toBe(false);
+        expect(valDistRight.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+        expect(() => analyzeBeam(modelDistRight)).toThrow(StructuralAnalysisError);
+        expect(() => calculateFixedFixedReactions(modelDistRight)).toThrow(/voladizo exterior/i);
+
+        // Caso 5: Carga distribuida que excede ambos extremos (xStart = 1, xEnd = 7)
+        const modelDistBoth: BeamModel = {
+          ...baseH3,
+          id: 'H3-rej-dist-both',
+          loads: [{ id: 'W1', type: 'distributed', xStart: 1.0, xEnd: 7.0, wStart: 10.0, wEnd: 10.0 }],
+        };
+        const valDistBoth = validateBeamModel(modelDistBoth);
+        expect(valDistBoth.isValid).toBe(false);
+        expect(valDistBoth.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+        expect(() => analyzeBeam(modelDistBoth)).toThrow(StructuralAnalysisError);
+        expect(() => calculateFixedFixedReactions(modelDistBoth)).toThrow(/voladizo exterior/i);
+
+        // Caso 6: Carga distribuida totalmente en el voladizo exterior (xStart = 6.5, xEnd = 8.0)
+        const modelDistTotExt: BeamModel = {
+          ...baseH3,
+          id: 'H3-rej-dist-tot-ext',
+          loads: [{ id: 'W1', type: 'distributed', xStart: 6.5, xEnd: 8.0, wStart: 10.0, wEnd: 10.0 }],
+        };
+        const valDistTotExt = validateBeamModel(modelDistTotExt);
+        expect(valDistTotExt.isValid).toBe(false);
+        expect(valDistTotExt.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+        expect(() => analyzeBeam(modelDistTotExt)).toThrow(StructuralAnalysisError);
+        expect(() => calculateFixedFixedReactions(modelDistTotExt)).toThrow(/voladizo exterior/i);
+      });
+
+      // 2. Cargas situadas exactamente en los extremos permitidos y tolerancia geométrica
+      it('T-H3-BOUND-01: Validez numérica y didáctica de cargas en los límites de los empotramientos', () => {
+        // Viga L = 6 m, empotramientos en x = 0 y x = 6
+        // Carga puntual en x = 0: se absorbe íntegramente por S1 sin generar flexión en el vano
+        const modelAtS1: BeamModel = {
+          ...h3Model,
+          id: 'H3-pt-at-S1',
+          loads: [{ id: 'P1', type: 'point', x: 0.0, P: 20.0 }],
+        };
+        const resS1 = analyzeBeam(modelAtS1);
+        expect(resS1.equilibrium.isBalanced).toBe(true);
+        const rS1_A = resS1.reactions.find((r) => r.supportId === 'S1')!;
+        const rS1_B = resS1.reactions.find((r) => r.supportId === 'S2')!;
+        expect(rS1_A.Ry).toBeCloseTo(20.0, 5);
+        expect(rS1_A.Mr).toBeCloseTo(0.0, 5);
+        expect(rS1_B.Ry).toBeCloseTo(0.0, 5);
+        expect(rS1_B.Mr).toBeCloseTo(0.0, 5);
+
+        // Carga puntual en x = 6: se absorbe íntegramente por S2 sin generar flexión en el vano
+        const modelAtS2: BeamModel = {
+          ...h3Model,
+          id: 'H3-pt-at-S2',
+          loads: [{ id: 'P1', type: 'point', x: 6.0, P: 20.0 }],
+        };
+        const resS2 = analyzeBeam(modelAtS2);
+        expect(resS2.equilibrium.isBalanced).toBe(true);
+        const rS2_A = resS2.reactions.find((r) => r.supportId === 'S1')!;
+        const rS2_B = resS2.reactions.find((r) => r.supportId === 'S2')!;
+        expect(rS2_A.Ry).toBeCloseTo(0.0, 5);
+        expect(rS2_A.Mr).toBeCloseTo(0.0, 5);
+        expect(rS2_B.Ry).toBeCloseTo(20.0, 5);
+        expect(rS2_B.Mr).toBeCloseTo(0.0, 5);
+
+        // Coherencia con LENGTH_TOLERANCE (1e-4 m):
+        // Viga con longitud L = 8.0 m y apoyos en x = 0 y x = 6 m
+        // Carga dentro de tolerancia (x = 6.0 + 0.5 * LENGTH_TOLERANCE) debe ser admitida
+        const modelWithinTol: BeamModel = {
+          ...h3Model,
+          id: 'H3-pt-within-tol',
+          length: 8.0,
+          loads: [{ id: 'P1', type: 'point', x: 6.0 + 0.5 * LENGTH_TOLERANCE, P: 20.0 }],
+        };
+        const valWithin = validateBeamModel(modelWithinTol);
+        expect(valWithin.isValid).toBe(true);
+        const resWithin = analyzeBeam(modelWithinTol);
+        expect(resWithin.equilibrium.isBalanced).toBe(true);
+
+        // Carga fuera de tolerancia (x = 6.0 + 2.0 * LENGTH_TOLERANCE) debe ser rechazada
+        const modelOutsideTol: BeamModel = {
+          ...h3Model,
+          id: 'H3-pt-outside-tol',
+          length: 8.0,
+          loads: [{ id: 'P1', type: 'point', x: 6.0 + 2.0 * LENGTH_TOLERANCE, P: 20.0 }],
+        };
+        const valOutside = validateBeamModel(modelOutsideTol);
+        expect(valOutside.isValid).toBe(false);
+        expect(valOutside.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      });
+
+      // 3. Apoyos trasladados respecto al origen con carga contenida estrictamente en el vano
+      it('T-H3-TRANS-01: Viga biempotrada con apoyos trasladados respecto al origen (x != 0)', () => {
+        // Viga L_total = 10 m, empotramientos en x = 2 m y x = 8 m (vano L = 6 m)
+        // Carga distribuida uniforme w = 12 kN/m en [2, 8] m
+        const shiftedH3: BeamModel = {
+          ...h3Model,
+          id: 'H3-shifted-origin',
+          length: 10.0,
+          supports: [
+            { id: 'S1', type: 'fixed', x: 2.0, label: 'A (Empotramiento x=2)' },
+            { id: 'S2', type: 'fixed', x: 8.0, label: 'B (Empotramiento x=8)' },
+          ],
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 2.0, xEnd: 8.0, wStart: 12.0, wEnd: 12.0 },
+          ],
+        };
+
+        const valShifted = validateBeamModel(shiftedH3);
+        expect(valShifted.isValid).toBe(true);
+
+        const resShifted = analyzeBeam(shiftedH3);
+        expect(resShifted.equilibrium.isBalanced).toBe(true);
+
+        const rA = resShifted.reactions.find((r) => r.supportId === 'S1')!;
+        const rB = resShifted.reactions.find((r) => r.supportId === 'S2')!;
+
+        // Teórico para L = 6 m, w = 12 kN/m:
+        // RA = RB = wL/2 = 36 kN
+        // MA = +wL^2/12 = +36 kN*m, MB = -wL^2/12 = -36 kN*m
+        expect(rA.Ry).toBeCloseTo(36.0, 5);
+        expect(rB.Ry).toBeCloseTo(36.0, 5);
+        expect(rA.Mr).toBeCloseTo(36.0, 5);
+        expect(rB.Mr).toBeCloseTo(-36.0, 5);
+
+        // Condiciones cinemáticas de frontera en x = 2 y x = 8
+        if (!resShifted.deflection.isImplemented) {
+          throw new Error('El análisis de deflexiones debe estar implementado para H3');
+        }
+        expect(resShifted.deflection.evaluate(2.0)).toBeCloseTo(0.0, 8);
+        expect(resShifted.deflection.evaluateSlope(2.0)).toBeCloseTo(0.0, 8);
+        expect(resShifted.deflection.evaluate(8.0)).toBeCloseTo(0.0, 8);
+        expect(resShifted.deflection.evaluateSlope(8.0)).toBeCloseTo(0.0, 8);
+      });
+    });
+
+    // =========================================================================
+    // BLOQUE 11: CORRECCIÓN CONTROLADA H4 (GEOMETRÍA, TRASLACIÓN, ORDEN Y ROBUSTEZ)
+    // =========================================================================
+    describe('Bloque 11: Corrección Controlada H4 (Geometría, Traslación, Orden y Robustez)', () => {
+      // Modelo canónico independiente de referencia para H4:
+      // L_total = 12 m, apoyos en x = 0, 6, 12 m (Lv = 6 m)
+      // Carga distribuida uniforme w = 10 kN/m en [0, 12] m, EI = 10000 kN*m^2
+      const canonicalH4: BeamModel = {
+        id: 'H4-canonical-audit-case',
+        length: 12.0,
+        supports: [
+          { id: 'S1', type: 'pin', x: 0.0, label: 'A (Pin x=0)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Roller x=6)' },
+          { id: 'S3', type: 'roller', x: 12.0, label: 'C (Roller x=12)' },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 12.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+        material,
+        section,
+      };
+
+      // 1. Caso canónico validado contra oráculo analítico independiente
+      it('T-H4-VAL-01: Caso canónico validado contra oráculo analítico independiente (Lv = 6 m, w = 10 kN/m)', () => {
+        const val = validateBeamModel(canonicalH4);
+        expect(val.isValid).toBe(true);
+
+        const res = analyzeBeam(canonicalH4);
+        expect(res.equilibrium.isBalanced).toBe(true);
+        expect(res.equilibrium.sumFy).toBeCloseTo(0.0, 7);
+        expect(res.equilibrium.sumM).toBeCloseTo(0.0, 7);
+
+        // Reacciones teóricas exactas:
+        // RA = RC = 3wLv/8 = 22.5 kN
+        // RB = 5wLv/4 = 75.0 kN
+        const rA = res.reactions.find((r) => r.supportId === 'S1')!;
+        const rB = res.reactions.find((r) => r.supportId === 'S2')!;
+        const rC = res.reactions.find((r) => r.supportId === 'S3')!;
+        expect(rA.Ry).toBeCloseTo(22.5, 6);
+        expect(rB.Ry).toBeCloseTo(75.0, 6);
+        expect(rC.Ry).toBeCloseTo(22.5, 6);
+
+        // Momentos teóricos:
+        // MB = -wLv^2/8 = -45.0 kN*m
+        // MA = MC = 0
+        // M_max1 = +9wLv^2/128 = +25.3125 kN*m en x = 2.25 m
+        // M_max2 = +25.3125 kN*m en x = 9.75 m
+        expect(res.moment.evaluate(0.0)).toBeCloseTo(0.0, 6);
+        expect(res.moment.evaluate(12.0)).toBeCloseTo(0.0, 6);
+        expect(res.moment.evaluate(6.0, 'left')).toBeCloseTo(-45.0, 6);
+        expect(res.moment.evaluate(6.0, 'right')).toBeCloseTo(-45.0, 6);
+        expect(res.moment.evaluate(2.25)).toBeCloseTo(25.3125, 6);
+        expect(res.moment.evaluate(9.75)).toBeCloseTo(25.3125, 6);
+
+        // Puntos de inflexión en x = 4.5 m y x = 7.5 m
+        expect(res.moment.evaluate(4.5)).toBeCloseTo(0.0, 6);
+        expect(res.moment.evaluate(7.5)).toBeCloseTo(0.0, 6);
+
+        // Cortantes analíticos:
+        // V(0+) = +22.5 kN, V(6-) = -37.5 kN, V(6+) = +37.5 kN, V(12-) = -22.5 kN
+        expect(res.shear.evaluate(0.0, 'right')).toBeCloseTo(22.5, 6);
+        expect(res.shear.evaluate(6.0, 'left')).toBeCloseTo(-37.5, 6);
+        expect(res.shear.evaluate(6.0, 'right')).toBeCloseTo(37.5, 6);
+        expect(res.shear.evaluate(12.0, 'left')).toBeCloseTo(-22.5, 6);
+
+        // Deflexión teórica:
+        // v_max = ((39 + 55*sqrt(33))/65536) * (w*Lv^4/EI) ≈ 0.00701929 m = 7.0193 mm
+        // x_max1 = 6 * (1 + sqrt(33))/16 ≈ 2.529211 m
+        if (!res.deflection.isImplemented) {
+          throw new Error('La deflexión debe estar implementada para H4');
+        }
+        const expectedVmax =
+          ((10.0 * 6.0 ** 4) / (48.0 * expectedEI)) *
+          (2.0 * ((1 + Math.sqrt(33)) / 16) ** 4 -
+            3.0 * ((1 + Math.sqrt(33)) / 16) ** 3 +
+            (1 + Math.sqrt(33)) / 16);
+        expect(res.deflection.maxDownward.value).toBeCloseTo(expectedVmax, 7);
+        expect(res.deflection.maxDownward.value * 1000.0).toBeCloseTo(7.0193, 3);
+        expect(res.deflection.maxDownward.x).toBeCloseTo(2.529211, 4);
+
+        // Condiciones cinemáticas de frontera en apoyos: v(0)=0, v(6)=0, v(12)=0, theta(6)=0
+        expect(res.deflection.evaluate(0.0)).toBeCloseTo(0.0, 8);
+        expect(res.deflection.evaluate(6.0)).toBeCloseTo(0.0, 8);
+        expect(res.deflection.evaluate(12.0)).toBeCloseTo(0.0, 8);
+        expect(res.deflection.evaluateSlope(6.0)).toBeCloseTo(0.0, 8);
+      });
+
+      // 2. Viga continua trasladada respecto al origen
+      it('T-H4-TRANS-01: Viga continua H4 trasladada respecto al origen (apoyos en x = 2, 8, 14 m)', () => {
+        // L_total = 16 m, apoyos en x = 2, 8, 14 m (Lv = 6 m)
+        // Carga w = 10 kN/m en [2, 14] m
+        const shiftedH4: BeamModel = {
+          id: 'H4-shifted-origin',
+          length: 16.0,
+          supports: [
+            { id: 'S1', type: 'pin', x: 2.0, label: 'A (Pin x=2)' },
+            { id: 'S2', type: 'roller', x: 8.0, label: 'B (Roller x=8)' },
+            { id: 'S3', type: 'roller', x: 14.0, label: 'C (Roller x=14)' },
+          ],
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 2.0, xEnd: 14.0, wStart: 10.0, wEnd: 10.0 },
+          ],
+          material,
+          section,
+        };
+
+        const val = validateBeamModel(shiftedH4);
+        expect(val.isValid).toBe(true);
+
+        const res = analyzeBeam(shiftedH4);
+        expect(res.equilibrium.isBalanced).toBe(true);
+
+        // Reacciones invariantes ante traslación:
+        const rA = res.reactions.find((r) => r.supportId === 'S1')!;
+        const rB = res.reactions.find((r) => r.supportId === 'S2')!;
+        const rC = res.reactions.find((r) => r.supportId === 'S3')!;
+        expect(rA.Ry).toBeCloseTo(22.5, 5);
+        expect(rB.Ry).toBeCloseTo(75.0, 5);
+        expect(rC.Ry).toBeCloseTo(22.5, 5);
+
+        // Momentos en apoyos trasladados:
+        expect(res.moment.evaluate(2.0)).toBeCloseTo(0.0, 5);
+        expect(res.moment.evaluate(8.0)).toBeCloseTo(-45.0, 5);
+        expect(res.moment.evaluate(14.0)).toBeCloseTo(0.0, 5);
+
+        // Momentos máximos trasladados: x0_1 = 2 + 2.25 = 4.25 m, x0_2 = 8 + 3.75 = 11.75 m
+        expect(res.moment.evaluate(4.25)).toBeCloseTo(25.3125, 5);
+        expect(res.moment.evaluate(11.75)).toBeCloseTo(25.3125, 5);
+
+        // Condiciones cinemáticas de frontera en apoyos: v(2)=0, v(8)=0, v(14)=0, theta(8)=0
+        if (!res.deflection.isImplemented) {
+          throw new Error('La deflexión debe estar implementada para H4');
+        }
+        expect(res.deflection.evaluate(2.0)).toBeCloseTo(0.0, 8);
+        expect(res.deflection.evaluate(8.0)).toBeCloseTo(0.0, 8);
+        expect(res.deflection.evaluate(14.0)).toBeCloseTo(0.0, 8);
+        expect(res.deflection.evaluateSlope(8.0)).toBeCloseTo(0.0, 8);
+
+        // Flecha máxima trasladada: x_max1 = 2 + 2.5292 = 4.5292 m
+        expect(res.deflection.maxDownward.x).toBeCloseTo(4.529211, 4);
+        expect(res.deflection.maxDownward.value * 1000.0).toBeCloseTo(7.0193, 3);
+
+        // Reporte didáctico comunica coordenadas reales trasladadas:
+        const report = res.didacticReport!;
+        expect(report.caseId).toBe('H4');
+
+        // Paso 1: muestra x=2m, x=8m, x=14m
+        const step1 = report.steps.find((s) => s.stepNumber === 1);
+        expect(step1?.substitution).toContain('x=2m');
+        expect(step1?.substitution).toContain('x=8m');
+        expect(step1?.substitution).toContain('x=14m');
+
+        // Paso 2: extremos en x=2m y x=14m
+        const step2 = report.steps.find((s) => s.stepNumber === 2);
+        expect(step2?.substitution).toContain('x=2m');
+        expect(step2?.substitution).toContain('x=14m');
+
+        // Paso 4: momento central en x=8 m y abscisa en 4.250 m
+        const step4 = report.steps.find((s) => s.stepNumber === 4);
+        expect(step4?.substitution).toContain('4.250 m');
+        expect(step4?.result).toContain('en x = 8 m');
+
+        // Paso 5: evaluación cinemática en x=8 m con verificación exitosa
+        const step5 = report.steps.find((s) => s.stepNumber === 5);
+        expect(step5?.substitution).toContain('θ(8m)');
+        expect(step5?.check?.isVerified).toBe(true);
+
+        // Condiciones de compatibilidad con coordenadas reales
+        expect(report.compatibilityConditions).toContain(
+          'Desplazamiento nulo en los tres apoyos: v(2)=0, v(8)=0, v(14)=0'
+        );
+      });
+
+      // 3. Invariancia ante el orden de entrada de los apoyos e inmutabilidad del modelo
+      it('T-H4-ORDER-01: Invariancia ante permutación de apoyos e inmutabilidad del modelo original', () => {
+        // 3a. Inmutabilidad de model.supports y model.loads bajo validateBeamModel
+        const unorderedModel1: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-unordered-supports-1',
+          supports: [
+            { id: 'S2', type: 'roller', x: 6.0, label: 'B (x=6)' },
+            { id: 'S1', type: 'pin', x: 0.0, label: 'A (x=0)' },
+            { id: 'S3', type: 'roller', x: 12.0, label: 'C (x=12)' },
+          ],
+        };
+        const snapshotBeforeVal = JSON.parse(JSON.stringify(unorderedModel1));
+        const val1 = validateBeamModel(unorderedModel1);
+        expect(val1.isValid).toBe(true);
+        expect(unorderedModel1.supports.map((s) => s.id)).toEqual(['S2', 'S1', 'S3']);
+        expect(unorderedModel1).toEqual(snapshotBeforeVal);
+
+        // 3b. Inmutabilidad de model.supports y model.loads bajo analyzeBeam
+        const snapshotBeforeAna = JSON.parse(JSON.stringify(unorderedModel1));
+        const res1 = analyzeBeam(unorderedModel1);
+        expect(res1.equilibrium.isBalanced).toBe(true);
+        expect(unorderedModel1.supports.map((s) => s.id)).toEqual(['S2', 'S1', 'S3']);
+        expect(unorderedModel1).toEqual(snapshotBeforeAna);
+
+        // 3c. Segunda permutación: orden descendente [S3, S2, S1]
+        const unorderedModel2: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-unordered-supports-2',
+          supports: [
+            { id: 'S3', type: 'roller', x: 12.0, label: 'C (x=12)' },
+            { id: 'S2', type: 'roller', x: 6.0, label: 'B (x=6)' },
+            { id: 'S1', type: 'pin', x: 0.0, label: 'A (x=0)' },
+          ],
+        };
+        const snapshotBeforeVal2 = JSON.parse(JSON.stringify(unorderedModel2));
+        const val2 = validateBeamModel(unorderedModel2);
+        expect(val2.isValid).toBe(true);
+        expect(unorderedModel2.supports.map((s) => s.id)).toEqual(['S3', 'S2', 'S1']);
+        expect(unorderedModel2).toEqual(snapshotBeforeVal2);
+
+        const snapshotBeforeAna2 = JSON.parse(JSON.stringify(unorderedModel2));
+        const res2 = analyzeBeam(unorderedModel2);
+        expect(res2.equilibrium.isBalanced).toBe(true);
+        expect(unorderedModel2.supports.map((s) => s.id)).toEqual(['S3', 'S2', 'S1']);
+        expect(unorderedModel2).toEqual(snapshotBeforeAna2);
+
+        // 3d. Reacciones equivalentes por supportId:
+        const rA1 = res1.reactions.find((r) => r.supportId === 'S1')!;
+        const rB1 = res1.reactions.find((r) => r.supportId === 'S2')!;
+        const rC1 = res1.reactions.find((r) => r.supportId === 'S3')!;
+        expect(rA1.Ry).toBeCloseTo(22.5, 6);
+        expect(rB1.Ry).toBeCloseTo(75.0, 6);
+        expect(rC1.Ry).toBeCloseTo(22.5, 6);
+
+        const rA2 = res2.reactions.find((r) => r.supportId === 'S1')!;
+        const rB2 = res2.reactions.find((r) => r.supportId === 'S2')!;
+        const rC2 = res2.reactions.find((r) => r.supportId === 'S3')!;
+        expect(rA2.Ry).toBeCloseTo(22.5, 6);
+        expect(rB2.Ry).toBeCloseTo(75.0, 6);
+        expect(rC2.Ry).toBeCloseTo(22.5, 6);
+
+        // 3e. Diagramas de esfuerzos internos idénticos:
+        expect(res1.moment.evaluate(0.0)).toBeCloseTo(0.0, 6);
+        expect(res2.moment.evaluate(0.0)).toBeCloseTo(0.0, 6);
+        expect(res1.moment.evaluate(6.0, 'left')).toBeCloseTo(-45.0, 6);
+        expect(res2.moment.evaluate(6.0, 'left')).toBeCloseTo(-45.0, 6);
+        expect(res1.moment.evaluate(12.0)).toBeCloseTo(0.0, 6);
+        expect(res2.moment.evaluate(12.0)).toBeCloseTo(0.0, 6);
+        expect(res1.moment.evaluate(2.25)).toBeCloseTo(25.3125, 6);
+        expect(res2.moment.evaluate(2.25)).toBeCloseTo(25.3125, 6);
+        expect(res1.moment.evaluate(9.75)).toBeCloseTo(25.3125, 6);
+        expect(res2.moment.evaluate(9.75)).toBeCloseTo(25.3125, 6);
+
+        expect(res1.shear.evaluate(0.0, 'right')).toBeCloseTo(22.5, 6);
+        expect(res2.shear.evaluate(0.0, 'right')).toBeCloseTo(22.5, 6);
+        expect(res1.shear.evaluate(6.0, 'left')).toBeCloseTo(-37.5, 6);
+        expect(res2.shear.evaluate(6.0, 'left')).toBeCloseTo(-37.5, 6);
+        expect(res1.shear.evaluate(6.0, 'right')).toBeCloseTo(37.5, 6);
+        expect(res2.shear.evaluate(6.0, 'right')).toBeCloseTo(37.5, 6);
+        expect(res1.shear.evaluate(12.0, 'left')).toBeCloseTo(-22.5, 6);
+        expect(res2.shear.evaluate(12.0, 'left')).toBeCloseTo(-22.5, 6);
+
+        // 3f. Deflexión y pendiente idénticas:
+        if (!res1.deflection.isImplemented || !res2.deflection.isImplemented) {
+          throw new Error('La deflexión debe estar implementada para H4');
+        }
+        expect(res1.deflection.maxDownward.value).toBeCloseTo(res2.deflection.maxDownward.value, 8);
+        expect(res1.deflection.maxDownward.x).toBeCloseTo(res2.deflection.maxDownward.x, 8);
+        expect(res1.deflection.evaluate(0.0)).toBeCloseTo(0.0, 8);
+        expect(res2.deflection.evaluate(0.0)).toBeCloseTo(0.0, 8);
+        expect(res1.deflection.evaluate(6.0)).toBeCloseTo(0.0, 8);
+        expect(res2.deflection.evaluate(6.0)).toBeCloseTo(0.0, 8);
+        expect(res1.deflection.evaluate(12.0)).toBeCloseTo(0.0, 8);
+        expect(res2.deflection.evaluate(12.0)).toBeCloseTo(0.0, 8);
+        expect(res1.deflection.evaluateSlope(6.0)).toBeCloseTo(0.0, 8);
+        expect(res2.deflection.evaluateSlope(6.0)).toBeCloseTo(0.0, 8);
+
+        // 3g. Informe didáctico preserva las coordenadas espaciales invariantes:
+        const rep1 = res1.didacticReport!;
+        const rep2 = res2.didacticReport!;
+        expect(rep1.steps[0]?.substitution).toContain('R1 en x=0m, R2 en x=6m, R3 en x=12m');
+        expect(rep2.steps[0]?.substitution).toContain('R1 en x=0m, R2 en x=6m, R3 en x=12m');
+        expect(rep1.steps[3]?.substitution).toContain('2.250 m');
+        expect(rep2.steps[3]?.substitution).toContain('2.250 m');
+        expect(rep1.steps[4]?.substitution).toContain('θ(6m)');
+        expect(rep2.steps[4]?.substitution).toContain('θ(6m)');
+        expect(rep1.compatibilityConditions).toEqual(rep2.compatibilityConditions);
+      });
+
+      // 4. Coherencia y límites de tolerancias de vanos y cargas (SPAN_EQUALITY_TOLERANCE y LOAD_INTENSITY_TOLERANCE)
+      it('T-H4-TOL-01: Coherencia de tolerancias en vanos y cargas justo dentro y fuera de los límites', () => {
+        // 4a. Viga con vanos casi iguales dentro de SPAN_EQUALITY_TOLERANCE (+0.5 * SPAN_EQUALITY_TOLERANCE)
+        const withinSpanTolModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-within-span-tol',
+          length: 12.0 + 0.5 * SPAN_EQUALITY_TOLERANCE,
+          supports: [
+            { id: 'S1', type: 'pin', x: 0.0 },
+            { id: 'S2', type: 'roller', x: 6.0 },
+            { id: 'S3', type: 'roller', x: 12.0 + 0.5 * SPAN_EQUALITY_TOLERANCE },
+          ],
+          loads: [
+            {
+              id: 'W1',
+              type: 'distributed',
+              xStart: 0.0,
+              xEnd: 12.0 + 0.5 * SPAN_EQUALITY_TOLERANCE,
+              wStart: 10.0,
+              wEnd: 10.0,
+            },
+          ],
+        };
+        const valWithinSpan = validateBeamModel(withinSpanTolModel);
+        expect(valWithinSpan.isValid).toBe(true);
+        expect(() => calculateContinuousBeamReactions(withinSpanTolModel)).not.toThrow();
+
+        // 4b. Viga con vanos desiguales fuera de SPAN_EQUALITY_TOLERANCE (+2.0 * SPAN_EQUALITY_TOLERANCE)
+        const outsideSpanTolModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-outside-span-tol',
+          length: 12.0 + 2.0 * SPAN_EQUALITY_TOLERANCE,
+          supports: [
+            { id: 'S1', type: 'pin', x: 0.0 },
+            { id: 'S2', type: 'roller', x: 6.0 },
+            { id: 'S3', type: 'roller', x: 12.0 + 2.0 * SPAN_EQUALITY_TOLERANCE },
+          ],
+          loads: [
+            {
+              id: 'W1',
+              type: 'distributed',
+              xStart: 0.0,
+              xEnd: 12.0 + 2.0 * SPAN_EQUALITY_TOLERANCE,
+              wStart: 10.0,
+              wEnd: 10.0,
+            },
+          ],
+        };
+        const valOutsideSpan = validateBeamModel(outsideSpanTolModel);
+        expect(valOutsideSpan.isValid).toBe(false);
+        expect(valOutsideSpan.errors.some((e) => e.includes('vanos desiguales'))).toBe(true);
+        expect(() => calculateContinuousBeamReactions(outsideSpanTolModel)).toThrow(
+          /dos vanos de igual longitud/i
+        );
+
+        // 4c. Carga uniforme con ligera variación dentro de LOAD_INTENSITY_TOLERANCE (+0.5 * LOAD_INTENSITY_TOLERANCE)
+        const withinLoadTolModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-within-load-tol',
+          loads: [
+            {
+              id: 'W1',
+              type: 'distributed',
+              xStart: 0.0,
+              xEnd: 12.0,
+              wStart: 10.0,
+              wEnd: 10.0 + 0.5 * LOAD_INTENSITY_TOLERANCE,
+            },
+          ],
+        };
+        const valWithinLoad = validateBeamModel(withinLoadTolModel);
+        expect(valWithinLoad.isValid).toBe(true);
+        expect(() => calculateContinuousBeamReactions(withinLoadTolModel)).not.toThrow();
+
+        // 4d. Carga trapezoidal con variación fuera de LOAD_INTENSITY_TOLERANCE (+2.0 * LOAD_INTENSITY_TOLERANCE)
+        const outsideLoadTolModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-outside-load-tol',
+          loads: [
+            {
+              id: 'W1',
+              type: 'distributed',
+              xStart: 0.0,
+              xEnd: 12.0,
+              wStart: 10.0,
+              wEnd: 10.0 + 2.0 * LOAD_INTENSITY_TOLERANCE,
+            },
+          ],
+        };
+        const valOutsideLoad = validateBeamModel(outsideLoadTolModel);
+        expect(valOutsideLoad.isValid).toBe(false);
+        expect(() => calculateContinuousBeamReactions(outsideLoadTolModel)).toThrow(
+          /trapezoidales o no uniformes/i
+        );
+      });
+
+      // 5. Rechazo controlado de cargas en voladizo exterior
+      it('T-H4-OVERHANG-01: Rechazo controlado de cargas distribuidas que se prolongan en voladizos exteriores', () => {
+        // 5a. Carga prolongada por la derecha: viga L = 14 m, apoyos en 0, 6, 12 m, carga en [0, 14] m
+        const rightOverhangModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-right-overhang',
+          length: 14.0,
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 14.0, wStart: 10.0, wEnd: 10.0 },
+          ],
+        };
+        const valRight = validateBeamModel(rightOverhangModel);
+        expect(valRight.isValid).toBe(false);
+        expect(valRight.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+
+        // 5b. Carga prolongada por la izquierda: viga L = 16 m, apoyos en 2, 8, 14 m, carga en [0, 14] m
+        const leftOverhangModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-left-overhang',
+          length: 16.0,
+          supports: [
+            { id: 'S1', type: 'pin', x: 2.0 },
+            { id: 'S2', type: 'roller', x: 8.0 },
+            { id: 'S3', type: 'roller', x: 14.0 },
+          ],
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 14.0, wStart: 10.0, wEnd: 10.0 },
+          ],
+        };
+        const valLeft = validateBeamModel(leftOverhangModel);
+        expect(valLeft.isValid).toBe(false);
+        expect(valLeft.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+
+        // 5c. Tolerancia límite: viga L = 14 m, apoyos en 0, 6, 12 m
+        // Carga dentro de LENGTH_TOLERANCE (xEnd = 12 + 0.5 * LENGTH_TOLERANCE)
+        const withinTolModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-within-tol',
+          length: 14.0,
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 12.0 + 0.5 * LENGTH_TOLERANCE, wStart: 10.0, wEnd: 10.0 },
+          ],
+        };
+        const valWithin = validateBeamModel(withinTolModel);
+        expect(valWithin.isValid).toBe(true);
+
+        const resWithin = analyzeBeam(withinTolModel);
+        expect(resWithin.equilibrium.isBalanced).toBe(true);
+        expect(resWithin.equilibrium.sumFy).toBeCloseTo(0.0, 7);
+        expect(resWithin.equilibrium.sumM).toBeCloseTo(0.0, 7);
+
+        // Incluso con alta intensidad de carga w = 50 kN/m, el clamping a los apoyos evita desbalance numérico
+        const withinTolHighW: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-within-tol-high-w',
+          length: 14.0,
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 12.0 + 0.5 * LENGTH_TOLERANCE, wStart: 50.0, wEnd: 50.0 },
+          ],
+        };
+        const valHighW = validateBeamModel(withinTolHighW);
+        expect(valHighW.isValid).toBe(true);
+        const resHighW = analyzeBeam(withinTolHighW);
+        expect(resHighW.equilibrium.isBalanced).toBe(true);
+        expect(resHighW.equilibrium.sumFy).toBeCloseTo(0.0, 7);
+        expect(resHighW.equilibrium.sumM).toBeCloseTo(0.0, 7);
+
+        // 5d. Tolerancia límite: viga L = 14 m, apoyos en 0, 6, 12 m
+        // Carga fuera de LENGTH_TOLERANCE (xEnd = 12 + 2.0 * LENGTH_TOLERANCE)
+        const outsideTolModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-outside-tol',
+          length: 14.0,
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 12.0 + 2.0 * LENGTH_TOLERANCE, wStart: 10.0, wEnd: 10.0 },
+          ],
+        };
+        const valOutside = validateBeamModel(outsideTolModel);
+        expect(valOutside.isValid).toBe(false);
+        expect(valOutside.errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      });
+
+      // 6. Validación completa en la entrada directa de calculateContinuousBeamReactions
+      it('T-H4-REJECT-01: calculateContinuousBeamReactions valida y rechaza directamente precondiciones no satisfechas', () => {
+        // 6a. Rechazo de carga puntual
+        const pointLoadModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-point-load',
+          loads: [{ id: 'P1', type: 'point', x: 3.0, P: 20.0 }],
+        };
+        expect(() => calculateContinuousBeamReactions(pointLoadModel)).toThrow(
+          /no admite cargas puntuales/i
+        );
+
+        // 6b. Rechazo de carga en voladizo exterior
+        const overhangDirectModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-overhang',
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 14.0, wStart: 10.0, wEnd: 10.0 },
+          ],
+        };
+        expect(() => calculateContinuousBeamReactions(overhangDirectModel)).toThrow(
+          /no admite cargas en voladizo exterior/i
+        );
+
+        // 6c. Rechazo de carga parcial (solo sobre un vano [0, 6] en lugar de [0, 12])
+        const partialDirectModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-partial',
+          loads: [
+            { id: 'W1', type: 'distributed', xStart: 0.0, xEnd: 6.0, wStart: 10.0, wEnd: 10.0 },
+          ],
+        };
+        expect(() => calculateContinuousBeamReactions(partialDirectModel)).toThrow(
+          /no admite cargas parciales o discontinuas/i
+        );
+
+        // 6d. Rechazo cuando faltan propiedades de material o sección
+        const missingMatModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-missing-mat',
+          material: undefined,
+        };
+        expect(() => calculateContinuousBeamReactions(missingMatModel)).toThrow(
+          /requiere propiedades de material/i
+        );
+
+        const missingSecModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-missing-sec',
+          section: undefined,
+        };
+        expect(() => calculateContinuousBeamReactions(missingSecModel)).toThrow(
+          /requiere propiedades de material/i
+        );
+
+        // 6e. Rechazo cuando el número de apoyos no es 3
+        const twoSupportsModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-2-supports',
+          supports: [
+            { id: 'S1', type: 'pin', x: 0.0 },
+            { id: 'S2', type: 'roller', x: 12.0 },
+          ],
+        };
+        expect(() => calculateContinuousBeamReactions(twoSupportsModel)).toThrow(
+          /requiere exactamente 3 apoyos simples/i
+        );
+
+        // 6f. Rechazo de empotramientos en viga continua H4
+        const fixedSupportModel: BeamModel = {
+          ...canonicalH4,
+          id: 'H4-direct-fixed-support',
+          supports: [
+            { id: 'S1', type: 'fixed', x: 0.0 },
+            { id: 'S2', type: 'roller', x: 6.0 },
+            { id: 'S3', type: 'roller', x: 12.0 },
+          ],
+        };
+        expect(() => calculateContinuousBeamReactions(fixedSupportModel)).toThrow(
+          /requiere apoyos simples/i
+        );
+      });
     });
   });
 });
-
-
-

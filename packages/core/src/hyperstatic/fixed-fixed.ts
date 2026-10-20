@@ -1,4 +1,8 @@
-import { FORCE_TOLERANCE, MOMENT_TOLERANCE } from '../constants.js';
+import {
+  FORCE_TOLERANCE,
+  LENGTH_TOLERANCE,
+  MOMENT_TOLERANCE,
+} from '../constants.js';
 import type {
   BeamAnalysisResult,
   BeamModel,
@@ -72,17 +76,36 @@ export function calculateFixedFixedReactions(
   for (const load of model.loads) {
     if (load.type === 'point') {
       const a = load.x - sA.x;
-      if (a >= 0 && a <= L) {
-        const b = L - a;
-        const P = load.P;
-        totalDownwardForce += P;
 
-        rAy += (P * b * b * (3 * a + b)) / (L * L * L);
-        rBy += (P * a * a * (a + 3 * b)) / (L * L * L);
-        mAReact += (P * a * b * b) / (L * L);
-        mBReact -= (P * a * a * b) / (L * L);
+      if (a < -LENGTH_TOLERANCE || a > L + LENGTH_TOLERANCE) {
+        throw new Error(
+          `Carga puntual en x=${load.x} m fuera del tramo entre empotramientos [${sA.x}, ${sB.x}]. El solver H3 no admite cargas en voladizo exterior.`
+        );
       }
+
+      // Clamp 'a' al tramo [0, L] para absorber ruido numérico de punto flotante dentro de LENGTH_TOLERANCE
+      const aClamped = Math.max(0, Math.min(L, a));
+      const b = L - aClamped;
+      const P = load.P;
+      totalDownwardForce += P;
+
+      rAy += (P * b * b * (3 * aClamped + b)) / (L * L * L);
+      rBy += (P * aClamped * aClamped * (aClamped + 3 * b)) / (L * L * L);
+      mAReact += (P * aClamped * b * b) / (L * L);
+      mBReact -= (P * aClamped * aClamped * b) / (L * L);
     } else if (load.type === 'distributed') {
+      const loadMinX = Math.min(load.xStart, load.xEnd);
+      const loadMaxX = Math.max(load.xStart, load.xEnd);
+
+      if (
+        loadMinX < sA.x - LENGTH_TOLERANCE ||
+        loadMaxX > sB.x + LENGTH_TOLERANCE
+      ) {
+        throw new Error(
+          `Carga distribuida [${load.xStart}, ${load.xEnd}] m fuera del tramo entre empotramientos [${sA.x}, ${sB.x}]. El solver H3 no admite cargas en voladizo exterior.`
+        );
+      }
+
       const a1 = Math.max(0, Math.min(L, load.xStart - sA.x));
       const a2 = Math.max(0, Math.min(L, load.xEnd - sA.x));
 

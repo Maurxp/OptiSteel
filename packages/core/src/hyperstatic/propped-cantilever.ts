@@ -1,4 +1,8 @@
-import { FORCE_TOLERANCE, MOMENT_TOLERANCE } from '../constants.js';
+import {
+  FORCE_TOLERANCE,
+  LENGTH_TOLERANCE,
+  MOMENT_TOLERANCE,
+} from '../constants.js';
 import type {
   BeamAnalysisResult,
   BeamModel,
@@ -72,13 +76,34 @@ export function calculateProppedCantileverReactions(
       // Distance 'a' from the fixed support to the load
       const a = isFixedAtLeft ? load.x - sFixed.x : sFixed.x - load.x;
 
-      if (a >= 0 && a <= L) {
-        // R_simple contribution = P * a^2 * (3*L - a) / (2 * L^3)
-        const rContrib = (load.P * a * a * (3 * L - a)) / (2 * L * L * L);
-        redundantR += rContrib;
-        loadMomentAboutFixed += load.P * a;
+      if (a < -LENGTH_TOLERANCE || a > L + LENGTH_TOLERANCE) {
+        throw new Error(
+          `Carga puntual en x=${load.x} m fuera del tramo entre apoyos [${Math.min(sFixed.x, sSimple.x)}, ${Math.max(sFixed.x, sSimple.x)}]. El solver H1 no admite cargas en voladizo exterior.`
+        );
       }
+
+      // Clamp 'a' al tramo [0, L] para absorber ruido numérico de punto flotante dentro de LENGTH_TOLERANCE
+      const aClamped = Math.max(0, Math.min(L, a));
+
+      // R_simple contribution = P * a^2 * (3*L - a) / (2 * L^3)
+      const rContrib = (load.P * aClamped * aClamped * (3 * L - aClamped)) / (2 * L * L * L);
+      redundantR += rContrib;
+      loadMomentAboutFixed += load.P * aClamped;
     } else if (load.type === 'distributed') {
+      const loadMinX = Math.min(load.xStart, load.xEnd);
+      const loadMaxX = Math.max(load.xStart, load.xEnd);
+      const minSuppX = Math.min(sFixed.x, sSimple.x);
+      const maxSuppX = Math.max(sFixed.x, sSimple.x);
+
+      if (
+        loadMinX < minSuppX - LENGTH_TOLERANCE ||
+        loadMaxX > maxSuppX + LENGTH_TOLERANCE
+      ) {
+        throw new Error(
+          `Carga distribuida [${load.xStart}, ${load.xEnd}] m fuera del tramo entre apoyos [${minSuppX}, ${maxSuppX}]. El solver H2 no admite cargas en voladizo exterior.`
+        );
+      }
+
       // Map distributed load interval to local distance 'a' from fixed support
       let a1: number;
       let a2: number;
@@ -98,8 +123,8 @@ export function calculateProppedCantileverReactions(
         const span = load.xEnd - load.xStart;
         const slope = span > 0 ? (load.wEnd - load.wStart) / span : 0;
         // x = sFixed.x - a
-        w1 = load.wStart + slope * (sFixed.x - a2 - load.xStart);
-        w2 = load.wStart + slope * (sFixed.x - a1 - load.xStart);
+        w1 = load.wStart + slope * (sFixed.x - a1 - load.xStart);
+        w2 = load.wStart + slope * (sFixed.x - a2 - load.xStart);
       }
 
       if (a2 > a1) {
