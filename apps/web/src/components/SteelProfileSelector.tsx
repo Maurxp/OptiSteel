@@ -128,14 +128,14 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
             </svg>
             <span>Alcance Técnico: Prediseño Elástico Preliminar</span>
           </div>
-          <span className="scope-badge-partial">Evaluación Parcial: LTB No Evaluado</span>
+          <span className="scope-badge-partial">Prediseño Elástico Preliminar</span>
         </div>
         <ul className="scope-banner-list">
           <li>
             <strong>Sin certificación normativa integral:</strong> Este motor realiza un prediseño elástico preliminar bajo tensiones admisibles y servicio de deflexión. No sustituye la revisión normativa exhaustiva según AISC 360-16 ni NSR-10 Título F.
           </li>
           <li>
-            <strong>Pandeo Lateral-Torsional (LTB):</strong> Permanece sin evaluar debido a que el catálogo canónico no contiene dimensiones de alas ($b_f, t_f$), radios de giro menores ($r_y$) ni constantes torsionales ($J, C_w$). La flexión presupone arriostramiento lateral continuo ($L_b \le L_p$).
+            <strong>Hipótesis de flexión:</strong> La verificación a flexión elástica bajo tensiones admisibles presupone arriostramiento lateral continuo del patín comprimido (L_b ≤ L_p).
           </li>
           <li>
             <strong>Esfuerzo cortante:</strong> Se calcula como esfuerzo cortante medio en el alma ($\tau = |V| / [d \cdot t_w]$). Si no se suministra cortante admisible, permanece con estado informativo no evaluado formalmente.
@@ -147,7 +147,7 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
       </div>
 
       {/* Criteria Configuration Form */}
-      <div className="card" style={{ marginBottom: '1.25rem', background: 'var(--bg-input)' }}>
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
         <h3 style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.75rem', color: 'var(--text-main)' }}>
           Parámetros y Criterios de Selección
         </h3>
@@ -156,11 +156,12 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           {/* Family Filter */}
           <div className="form-group">
             <label htmlFor="profile-family-select" className="form-label">
-              Familia de Perfiles
+              <span>Familia de Perfiles</span>
+              <span className="unit">Catálogo</span>
             </label>
             <select
               id="profile-family-select"
-              className="form-control"
+              className="form-select"
               value={profileTypeFilter}
               onChange={(e) => setProfileTypeFilter(e.target.value as SteelProfileType | 'ALL')}
             >
@@ -174,14 +175,15 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           {/* Allowable Bending Stress */}
           <div className="form-group">
             <label htmlFor="allowable-bending-stress-input" className="form-label">
-              Tensión Admisible Flexión σ<sub>adm</sub> (MPa)
+              <span>Tensión Admisible Flexión σ<sub>adm</sub></span>
+              <span className="unit">MPa</span>
             </label>
             <input
               id="allowable-bending-stress-input"
               type="number"
               step="5"
               min="10"
-              className="form-control"
+              className="form-input"
               value={allowableBendingStress}
               onChange={(e) => setAllowableBendingStress(e.target.value)}
               placeholder="Ej. 150 (ASD A36)"
@@ -192,7 +194,8 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           {/* Deflection Limit Denominator */}
           <div className="form-group">
             <label htmlFor="deflection-limit-denominator-input" className="form-label">
-              Límite de Flecha L/n (Denominador n)
+              <span>Límite de Flecha L/n</span>
+              <span className="unit">Denominador n</span>
             </label>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               <input
@@ -200,7 +203,7 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
                 type="number"
                 step="20"
                 min="50"
-                className="form-control"
+                className="form-input"
                 value={deflectionDenominator}
                 onChange={(e) => setDeflectionDenominator(e.target.value)}
                 placeholder="Ej. 360"
@@ -208,7 +211,7 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
               />
               <select
                 aria-label="Preajustes de límite de flecha"
-                className="form-control"
+                className="form-select"
                 style={{ width: 'auto', flexShrink: 0 }}
                 value={deflectionDenominator}
                 onChange={(e) => setDeflectionDenominator(e.target.value)}
@@ -227,14 +230,15 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           {/* Optional Shear Stress */}
           <div className="form-group">
             <label htmlFor="allowable-shear-stress-input" className="form-label">
-              Tensión Admisible Cortante τ<sub>adm</sub> (MPa, Opcional)
+              <span>Tensión Cortante τ<sub>adm</sub> (Opcional)</span>
+              <span className="unit">MPa</span>
             </label>
             <input
               id="allowable-shear-stress-input"
               type="number"
               step="5"
               min="5"
-              className="form-control"
+              className="form-input"
               value={allowableShearStress}
               onChange={(e) => setAllowableShearStress(e.target.value)}
               placeholder="Opcional (Ej. 90)"
@@ -244,14 +248,15 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           {/* Modulus of Elasticity */}
           <div className="form-group">
             <label htmlFor="elastic-modulus-input" className="form-label">
-              Módulo de Elasticidad E (GPa)
+              <span>Módulo de Elasticidad (E)</span>
+              <span className="unit">GPa</span>
             </label>
             <input
               id="elastic-modulus-input"
               type="number"
               step="5"
               min="10"
-              className="form-control"
+              className="form-input"
               value={elasticModulus}
               onChange={(e) => setElasticModulus(e.target.value)}
               placeholder="200"
@@ -262,7 +267,7 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           {/* Include Self-Weight Checkbox */}
           <div className="form-group" style={{ justifyContent: 'center' }}>
             <label className="form-label" style={{ visibility: 'hidden' }}>
-              Peso Propio
+              <span>Peso Propio</span>
             </label>
             <label
               htmlFor="include-self-weight-checkbox"
@@ -435,9 +440,6 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
                 <span className={`badge-status badge-status-${result.optimalProfile.shear.status}`}>
                   {result.optimalProfile.shear.status === 'passed' ? '✓' : 'ℹ'} Cortante: {result.optimalProfile.shear.actualShearStressMPa.toFixed(1)} MPa ({result.optimalProfile.shear.status === 'passed' ? 'Aprobado' : 'No Evaluado'})
                 </span>
-                <span className="badge-status badge-status-not_evaluated">
-                  ℹ LTB: No Evaluado (Asume L_b ≤ L_p)
-                </span>
               </div>
             </div>
           ) : (
@@ -454,7 +456,7 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
           )}
 
           {/* Candidates Detailed Table */}
-          <div className="card" style={{ padding: '1rem', background: 'var(--bg-input)' }}>
+          <div className="card" style={{ padding: '1rem' }}>
             <div className="panel-header" style={{ marginBottom: '0.85rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
@@ -510,7 +512,6 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
                       <th>Flexión (σ / σ_adm)</th>
                       <th>Flecha (δ / δ_adm)</th>
                       <th>Cortante medio</th>
-                      <th>LTB</th>
                       <th>Estado</th>
                     </tr>
                   </thead>
@@ -593,16 +594,6 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
                             </span>
                           </td>
 
-                          {/* LTB status */}
-                          <td>
-                            <span
-                              className="badge-status badge-status-not_evaluated"
-                              title={candidate.ltb.reason}
-                            >
-                              No Evaluado
-                            </span>
-                          </td>
-
                           {/* Viability status */}
                           <td>
                             <span
@@ -672,7 +663,9 @@ export const SteelProfileSelector: React.FC<SteelProfileSelectorProps> = ({
                   </div>
                   <div>
                     <span style={{ color: 'var(--text-dim)' }}>Alcance de cálculo: </span>
-                    <strong style={{ color: '#fbbf24' }}>Prediseño Elástico (allChecksEvaluated: false)</strong>
+                    <strong style={{ color: selectedCandidate.allChecksEvaluated ? '#10b981' : '#fbbf24' }}>
+                      Prediseño Elástico ({selectedCandidate.allChecksEvaluated ? 'Evaluación Completa' : 'Evaluación Parcial'})
+                    </strong>
                   </div>
                 </div>
 

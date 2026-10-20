@@ -40,8 +40,7 @@ describe('OptiSteel 2.0 — SteelProfileSelector Component Integration Tests', (
     ).toBeInTheDocument();
 
     // Banner de advertencia obligatoria de prediseño preliminar
-    expect(screen.getByText(/Alcance Técnico: Prediseño Elástico Preliminar/i)).toBeInTheDocument();
-    expect(screen.getByText(/Evaluación Parcial: LTB No Evaluado/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Prediseño Elástico Preliminar/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Sin certificación normativa integral/i)).toBeInTheDocument();
 
     // Métricas resumidas
@@ -155,20 +154,19 @@ describe('OptiSteel 2.0 — SteelProfileSelector Component Integration Tests', (
     expect(screen.getByText(/Sin candidato/i)).toBeInTheDocument();
   });
 
-  it('8. Estados not_evaluated explícitos para cortante y LTB', () => {
+  it('8. Estados not_evaluated explícitos para cortante cuando no se suministra tau_adm', () => {
     render(<SteelProfileSelector beamModel={simpleBeamModel} isModelValid={true} />);
 
-    // LTB siempre debe figurar como no evaluado
-    const ltbBadges = screen.getAllByText(/No Evaluado/i);
-    expect(ltbBadges.length).toBeGreaterThan(0);
-
     // Cortante sin tau_adm debe figurar como no evaluado
-    const shearInput = screen.getByLabelText(/Tensión Admisible Cortante/i);
+    const shearInput = screen.getByLabelText(/Tensión Cortante/i);
     expect(shearInput).toHaveValue(null);
+
+    // Debe mostrar badge de No Evaluado para cortante
+    expect(screen.getByText(/Cortante:.*No Evaluado/i)).toBeInTheDocument();
 
     // Especificar cortante admisible amplio
     fireEvent.change(shearInput, { target: { value: '100' } });
-    expect(screen.getAllByText(/Cortante:/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Cortante:.*Aprobado/i)).toBeInTheDocument();
   });
 
   it('9. Detalle interactivo de candidato al hacer clic en una fila', () => {

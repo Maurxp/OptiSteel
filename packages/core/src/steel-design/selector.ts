@@ -5,7 +5,6 @@ import { validateBeamModel } from '../validator.js';
 import type {
   BendingCheckResult,
   DeflectionCheckResult,
-  LtbCheckResult,
   ShearCheckResult,
   SteelCandidateEvaluation,
   SteelDesignScope,
@@ -15,7 +14,6 @@ import type {
 
 export const STEEL_DESIGN_LIMITATIONS: readonly string[] = [
   'La verificación de flexión se basa en la teoría elástica de vigas (sigma = |M_max| / Sx) y asume que el patín comprimido cuenta con arriostramiento lateral continuo (Lb <= Lp).',
-  'El catálogo canónico (Pytel & Singer Tabla B-2) no contiene dimensiones de patines (bf, tf), radios de giro menores (ry) ni constantes torsionales (J, Cw), por lo que el pandeo lateral-torsional (LTB) no puede ser evaluado analíticamente.',
   'La evaluación de cortante calcula el esfuerzo cortante medio en el alma (tau = |V_max| / (d * tw)). No constituye una verificación exhaustiva según AISC 360 Capítulo G, ya que no se evalúa el pandeo local del alma (h / tw frente a 2.24*sqrt(E/Fy)).',
   'Los límites de deflexión (L/n) corresponden a criterios de servicio elásticos. Las etiquetas normativas usuales (AISC DG-3, NSR-10, IBC) son orientativas y no certifican cumplimiento normativo pleno sin el concurso de combinaciones de carga separadas (cargas muertas D frente a cargas vivas L).',
 ] as const;
@@ -126,7 +124,6 @@ export function validateSelectionCriteria(criteria: SteelSelectionCriteria): voi
  *            = (|M_max| * 10^3) / Sx  [MPa]
  * 4. Deflection is compared directly against span L / n using the exact Macaulay/Euler-Bernoulli integration.
  * 5. Web shear is computed as average web stress tau = |V_max| * 1000 / (d * tw) [MPa].
- * 6. LTB is explicitly marked as not evaluated due to catalog geometric data limitations.
  */
 export function evaluateProfile(
   profile: SteelProfile,
@@ -285,20 +282,12 @@ export function evaluateProfile(
     ...(shearFailureReason ? { failureReason: shearFailureReason } : {}),
   };
 
-  // --- 4. Lateral-Torsional Buckling Status ---
-  const ltb: LtbCheckResult = {
-    status: 'not_evaluated',
-    reason:
-      'El catálogo no contiene bf, tf, ry, J ni Cw. La comprobación a flexión asume patín comprimido continuamente arriostrado (Lb <= Lp).',
-  };
-
   // --- Scope and Evaluation Completeness ---
   const designScope: SteelDesignScope = 'preliminary_elastic';
   const allChecksEvaluated =
     bending.status !== 'not_evaluated' &&
     deflection.status !== 'not_evaluated' &&
-    shear.status !== 'not_evaluated' &&
-    ltb.status !== 'not_evaluated';
+    shear.status !== 'not_evaluated';
 
   // Profile is viable within preliminary elastic scope if it passes bending, deflection, and shear (if evaluated)
   const isViable = passesBending && passesDeflection && shearStatus !== 'failed';
@@ -313,7 +302,6 @@ export function evaluateProfile(
     bending,
     deflection,
     shear,
-    ltb,
   };
 }
 

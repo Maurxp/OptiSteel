@@ -73,22 +73,11 @@ export interface ShearCheckResult {
 }
 
 /**
- * Result of the Lateral-Torsional Buckling (LTB) evaluation.
- * In Phase 2, this is explicitly marked as 'not_evaluated' because the catalog
- * does not contain flange dimensions (bf, tf), minor-axis radius (ry), or torsional constants (J, Cw).
- */
-export interface LtbCheckResult {
-  readonly status: 'not_evaluated';
-  /** Technical explanation of why LTB cannot be evaluated with the catalog data */
-  readonly reason: string;
-}
-
-/**
  * Calculation scope indicator for structural steel profile evaluation:
  * - 'preliminary_elastic': First-order linear elastic serviceability and allowable stress evaluation.
  *   Does NOT constitute a full building code verification (AISC 360-16 / NSR-10 Title F)
- *   as it does not verify lateral-torsional buckling (LTB), local web/flange buckling,
- *   or factored load combinations.
+ *   as it does not verify local web/flange buckling or factored load combinations,
+ *   and assumes continuous lateral bracing of the compression flange.
  */
 export type SteelDesignScope = 'preliminary_elastic';
 
@@ -104,11 +93,9 @@ export interface SteelCandidateEvaluation {
    */
   readonly designScope: SteelDesignScope;
   /**
-   * True strictly if EVERY check defined in the candidate evaluation
-   * (bending, deflection, shear, and ltb) has been evaluated (i.e. status is not 'not_evaluated').
-   *
-   * In Phase 2, because LTB cannot be evaluated analytically with the catalog's geometric data,
-   * this is dynamically derived and will be false whenever any check is 'not_evaluated'.
+   * True strictly if EVERY check defined in the active evaluation scope
+   * (bending, deflection, and shear) has been evaluated (i.e. status is not 'not_evaluated').
+   * If allowable shear stress is omitted, shear remains 'not_evaluated' and this will be false.
    */
   readonly allChecksEvaluated: boolean;
   /** Self-weight distributed load intensity in kN/m */
@@ -119,8 +106,7 @@ export interface SteelCandidateEvaluation {
    *
    * IMPORTANT ENGINEERING NOTICE:
    * `isViable: true` indicates ONLY that the candidate passed the evaluated preliminary elastic checks.
-   * It does NOT certify full building code compliance (AISC 360, NSR-10, etc.) because mandatory
-   * strength checks like Lateral-Torsional Buckling (LTB) remain 'not_evaluated'.
+   * It does NOT certify full building code compliance (AISC 360, NSR-10, etc.).
    * Always verify `allChecksEvaluated` and inspect `limitations`.
    */
   readonly isViable: boolean;
@@ -132,8 +118,6 @@ export interface SteelCandidateEvaluation {
   readonly deflection: DeflectionCheckResult;
   /** Web shear stress evaluation result */
   readonly shear: ShearCheckResult;
-  /** Lateral-Torsional Buckling status (not evaluated in preliminary elastic scope) */
-  readonly ltb: LtbCheckResult;
 }
 
 /**

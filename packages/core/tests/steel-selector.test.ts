@@ -468,15 +468,15 @@ describe('OptiSteel 2.0 — Motor de Selección de Perfiles de Acero (Fase 2)', 
       expect(evalFail.failureReasons.some((r) => r.includes('cortante'))).toBe(true);
     });
 
-    it('Declara siempre LTB como "not_evaluated" con justificación técnica explícita', () => {
+    it('Deriva dinámicamente allChecksEvaluated como false cuando cortante no está evaluado', () => {
       const profile = STEEL_PROFILES[0]!;
       const evalResult = evaluateProfile(profile, simpleBeamModel, {
         allowableBendingStressMPa: 140,
         deflectionLimitDenominator: 360,
       });
 
-      expect(evalResult.ltb.status).toBe('not_evaluated');
-      expect(evalResult.ltb.reason).toContain('El catálogo no contiene bf, tf, ry, J ni Cw');
+      expect(evalResult.shear.status).toBe('not_evaluated');
+      expect(evalResult.allChecksEvaluated).toBe(false);
     });
 
     it('Expone las limitaciones técnicas y supuestos de ingeniería en el resultado global', () => {
@@ -486,8 +486,8 @@ describe('OptiSteel 2.0 — Motor de Selección de Perfiles de Acero (Fase 2)', 
       });
 
       expect(result.limitations).toBe(STEEL_DESIGN_LIMITATIONS);
-      expect(result.limitations.length).toBeGreaterThanOrEqual(4);
-      expect(result.limitations.some((l) => l.includes('pandeo lateral-torsional'))).toBe(true);
+      expect(result.limitations.length).toBeGreaterThanOrEqual(3);
+      expect(result.limitations.some((l) => l.includes('arriostramiento lateral'))).toBe(true);
     });
 
     it('Maneja de forma segura casos extremos donde ningún perfil cumple', () => {
@@ -511,7 +511,7 @@ describe('OptiSteel 2.0 — Motor de Selección de Perfiles de Acero (Fase 2)', 
       expect(result.disqualifiedCandidates.length).toBe(76);
     });
 
-    it('Asigna designScope "preliminary_elastic" y deriva dinámicamente allChecksEvaluated como false cuando LTB o cortante no están evaluados', () => {
+    it('Asigna designScope "preliminary_elastic" y deriva dinámicamente allChecksEvaluated como false cuando cortante no está evaluado', () => {
       const profile = STEEL_PROFILES.find((p) => p.designation === 'W310x52')!;
       const evalResult = evaluateProfile(profile, simpleBeamModel, {
         allowableBendingStressMPa: 140,
@@ -519,29 +519,35 @@ describe('OptiSteel 2.0 — Motor de Selección de Perfiles de Acero (Fase 2)', 
       });
 
       expect(evalResult.designScope).toBe('preliminary_elastic');
-      // LTB is not_evaluated, and shear is not_evaluated (allowableShearStressMPa omitted)
-      expect(evalResult.ltb.status).toBe('not_evaluated');
+      // Shear is not_evaluated (allowableShearStressMPa omitted)
       expect(evalResult.shear.status).toBe('not_evaluated');
       expect(evalResult.allChecksEvaluated).toBe(false);
     });
 
-    it('Distingue con claridad entre viabilidad preliminar (isViable: true) y verificación integral (allChecksEvaluated: false)', () => {
-      const result = selectOptimalSteelProfiles(simpleBeamModel, {
+    it('Distingue con claridad entre viabilidad preliminar y estado allChecksEvaluated según se suministre cortante admisible', () => {
+      const resultWithShear = selectOptimalSteelProfiles(simpleBeamModel, {
         allowableBendingStressMPa: 150,
         deflectionLimitDenominator: 360,
         allowableShearStressMPa: 100, // shear evaluated and passed
       });
 
-      expect(result.optimalProfile).toBeDefined();
-      const opt = result.optimalProfile!;
+      expect(resultWithShear.optimalProfile).toBeDefined();
+      const optWithShear = resultWithShear.optimalProfile!;
       // Passes evaluated checks (bending, deflection, shear)
-      expect(opt.isViable).toBe(true);
-      expect(opt.bending.status).toBe('passed');
-      expect(opt.deflection.status).toBe('passed');
-      expect(opt.shear.status).toBe('passed');
-      // But LTB is still not_evaluated due to catalog geometric limitations
-      expect(opt.ltb.status).toBe('not_evaluated');
-      expect(opt.allChecksEvaluated).toBe(false);
+      expect(optWithShear.isViable).toBe(true);
+      expect(optWithShear.bending.status).toBe('passed');
+      expect(optWithShear.deflection.status).toBe('passed');
+      expect(optWithShear.shear.status).toBe('passed');
+      expect(optWithShear.allChecksEvaluated).toBe(true);
+
+      const resultWithoutShear = selectOptimalSteelProfiles(simpleBeamModel, {
+        allowableBendingStressMPa: 150,
+        deflectionLimitDenominator: 360,
+      });
+      const optWithoutShear = resultWithoutShear.optimalProfile!;
+      expect(optWithoutShear.isViable).toBe(true);
+      expect(optWithoutShear.shear.status).toBe('not_evaluated');
+      expect(optWithoutShear.allChecksEvaluated).toBe(false);
     });
 
     it('isSelfWeightLoad detecta de forma fiable identificadores y etiquetas de peso propio y no confunde cargas externas legítimas', () => {
