@@ -1,7 +1,7 @@
 import React from 'react';
 import type { BeamFormState, FormLoad, FormSupport, FormLoadType } from '../types/ui.js';
 import type { SupportType } from '@optisteel/core';
-import { getPresetModels } from '../adapters/beamAdapter.js';
+import { getPresetModels, getHyperstaticPresets } from '../adapters/beamAdapter.js';
 
 interface BeamConfigFormProps {
   form: BeamFormState;
@@ -11,6 +11,7 @@ interface BeamConfigFormProps {
 
 export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, onReset }) => {
   const presets = getPresetModels();
+  const hyperPresets = getHyperstaticPresets();
 
   // Handlers for beam geometry & elasticity
   const handleLengthChange = (val: number) => {
@@ -116,10 +117,76 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
         </button>
       </div>
 
+      {/* Quick Selection: Casos Hiperestáticos Canónicos H1–H4 */}
+      <div className="form-section">
+        <label className="form-label" style={{ color: '#38bdf8', fontWeight: 700, marginBottom: '0.4rem' }}>
+          <span>⚡ Casos Hiperestáticos Soportados (H1–H4)</span>
+        </label>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: '0.4rem',
+            marginBottom: '0.5rem',
+          }}
+        >
+          {hyperPresets.map((hp) => (
+            <button
+              key={hp.id}
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{
+                fontSize: '0.78rem',
+                padding: '0.45rem 0.5rem',
+                textAlign: 'left',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.15rem',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                backgroundColor: 'rgba(56, 189, 248, 0.06)',
+                borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+              onClick={() => onChange(hp.state)}
+              title={hp.description}
+            >
+              <strong style={{ color: '#38bdf8' }}>{hp.id}</strong>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.2 }}>
+                {hp.id === 'H1' && 'Empotrada-Apoyada (P)'}
+                {hp.id === 'H2' && 'Empotrada-Apoyada (w)'}
+                {hp.id === 'H3' && 'Biempotrada (w)'}
+                {hp.id === 'H4' && '2 Vanos Iguales (w)'}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Scope and requirements guide */}
+        <div
+          style={{
+            padding: '0.5rem 0.7rem',
+            borderRadius: '6px',
+            backgroundColor: 'rgba(15, 23, 42, 0.4)',
+            border: '1px solid var(--border-color)',
+            fontSize: '0.72rem',
+            color: 'var(--text-muted)',
+            lineHeight: 1.35,
+          }}
+        >
+          <strong style={{ color: 'var(--text-main)' }}>Guía de Casos Hiperestáticos:</strong>
+          <ul style={{ margin: '0.2rem 0 0', paddingLeft: '1rem' }}>
+            <li><strong>H1:</strong> Empotramiento + rodillo con cargas puntuales.</li>
+            <li><strong>H2:</strong> Empotramiento + rodillo con carga distribuida.</li>
+            <li><strong>H3:</strong> Dos empotramientos con carga uniforme o puntual.</li>
+            <li><strong>H4:</strong> 3 apoyos simples, dos vanos iguales y carga uniforme continua.</li>
+          </ul>
+        </div>
+      </div>
+
       {/* Preset Selector */}
       <div className="form-section">
         <label className="form-label">
-          <span>Plantillas Rápidas (Casos Canónicos)</span>
+          <span>Otras Plantillas (Casos Isostáticos Pytel/Singer)</span>
         </label>
         <select
           className="form-select"
@@ -177,7 +244,7 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
           </div>
           <div className="form-group">
             <label className="form-label" htmlFor="beam-iz">
-              <span>Inercia Iz</span>
+              <span>Inercia de flexión Iz</span>
               <span className="unit">cm⁴</span>
             </label>
             <input
@@ -188,6 +255,7 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
               className="form-input"
               value={form.Iz}
               onChange={(e) => handleIzChange(parseFloat(e.target.value) || 0)}
+              title="Momento de inercia de área respecto al eje de flexión (eje Z del solver 2D). Para perfiles de catálogo orientados en posición vertical estándar, corresponde a la inercia del eje fuerte Ix."
             />
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { BeamAnalysisResult, PointLoad, MomentLoad } from '@optisteel/core';
 import { DiagramChart } from './DiagramChart.js';
+import { DidacticReportView } from './DidacticReportView.js';
 
 interface AnalysisResultsProps {
   analysis: BeamAnalysisResult;
@@ -153,6 +154,48 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ analysis }) =>
 
   return (
     <div className="analysis-results">
+      {/* Determinacy Classification Banner */}
+      {!analysis.isStaticDeterminate && (
+        <div
+          className="hyperstatic-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.65rem 1rem',
+            marginBottom: '1rem',
+            background: 'linear-gradient(90deg, rgba(56, 189, 248, 0.12) 0%, rgba(192, 132, 252, 0.12) 100%)',
+            border: '1px solid rgba(56, 189, 248, 0.35)',
+            borderRadius: '8px',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <span
+              style={{
+                backgroundColor: 'rgba(56, 189, 248, 0.25)',
+                color: '#38bdf8',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+              }}
+            >
+              Viga Hiperestática
+            </span>
+            <span style={{ fontSize: '0.92rem', color: '#f1f5f9', fontWeight: 600 }}>
+              {analysis.didacticReport?.caseName || 'Estáticamente Indeterminada'}
+            </span>
+          </div>
+          <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+            Método de Compatibilidad Elástica de Deformaciones (Euler-Bernoulli)
+          </span>
+        </div>
+      )}
+
       {/* 1. Executive Summary Cards */}
       <div className="metrics-grid">
         <div className="metric-card">
@@ -260,6 +303,11 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ analysis }) =>
           <span>Tolerancia de Equilibrio = {equilibrium.toleranceForce} kN</span>
         </div>
       </div>
+
+      {/* Reporte Didáctico Paso a Paso para Vigas Hiperestáticas */}
+      {analysis.didacticReport && (
+        <DidacticReportView report={analysis.didacticReport} />
+      )}
 
       {/* 3. Internal Shear Force Diagram V(x) */}
       <DiagramChart

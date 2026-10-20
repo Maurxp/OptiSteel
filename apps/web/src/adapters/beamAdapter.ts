@@ -187,3 +187,112 @@ export function getPresetModels(): { name: string; description: string; state: B
     },
   ];
 }
+
+/**
+ * Returns canonical hyperstatic presets H1–H4 for quick selection.
+ */
+export function getHyperstaticPresets(): { id: string; name: string; description: string; state: BeamFormState }[] {
+  return [
+    {
+      id: 'H1',
+      name: 'Caso H1: Empotrada-Apoyada con Carga Central',
+      description: 'L = 4 m, empotramiento en 0 m, rodillo en 4 m, P = 16 kN en x = 2 m.',
+      state: {
+        length: 4.0,
+        materialName: 'Acero Estructural (E = 200 GPa)',
+        E: 200.0,
+        sectionName: 'Sección Canónica (Iz = 5000 cm⁴)',
+        Iz: 5000.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento)' },
+          { id: 'S2', type: 'roller', x: 4.0, label: 'B (Rodillo)' },
+        ],
+        loads: [
+          { id: 'P1', type: 'point', x: 2.0, P: 16.0, label: 'P = 16 kN (Centro)' },
+        ],
+      },
+    },
+    {
+      id: 'H2',
+      name: 'Caso H2: Empotrada-Apoyada con Carga Uniforme',
+      description: 'L = 6 m, empotramiento en 0 m, rodillo en 6 m, w = 10 kN/m en todo el vano.',
+      state: {
+        length: 6.0,
+        materialName: 'Acero Estructural (E = 200 GPa)',
+        E: 200.0,
+        sectionName: 'Sección Canónica (Iz = 5000 cm⁴)',
+        Iz: 5000.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento)' },
+          { id: 'S2', type: 'roller', x: 6.0, label: 'B (Rodillo)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 10.0,
+            wEnd: 10.0,
+            label: 'w = 10 kN/m',
+          },
+        ],
+      },
+    },
+    {
+      id: 'H3',
+      name: 'Caso H3: Viga Biempotrada con Carga Uniforme',
+      description: 'L = 6 m, empotramientos en 0 m y 6 m, w = 12 kN/m en todo el vano.',
+      state: {
+        length: 6.0,
+        materialName: 'Acero Estructural (E = 200 GPa)',
+        E: 200.0,
+        sectionName: 'Sección Canónica (Iz = 5000 cm⁴)',
+        Iz: 5000.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 0.0, label: 'A (Empotramiento)' },
+          { id: 'S2', type: 'fixed', x: 6.0, label: 'B (Empotramiento)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 6.0,
+            wStart: 12.0,
+            wEnd: 12.0,
+            label: 'w = 12 kN/m',
+          },
+        ],
+      },
+    },
+    {
+      id: 'H4',
+      name: 'Caso H4: Viga Continua de Dos Vanos con Carga Uniforme',
+      description: 'L = 8 m (Lv = 4 m), apoyos en 0, 4 y 8 m, w = 6 kN/m en ambos vanos.',
+      state: {
+        length: 8.0,
+        materialName: 'Acero Estructural (E = 200 GPa)',
+        E: 200.0,
+        sectionName: 'Sección Canónica (Iz = 5000 cm⁴)',
+        Iz: 5000.0,
+        supports: [
+          { id: 'S1', type: 'pin', x: 0.0, label: 'A (Pin)' },
+          { id: 'S2', type: 'roller', x: 4.0, label: 'B (Apoyo Central)' },
+          { id: 'S3', type: 'roller', x: 8.0, label: 'C (Roller)' },
+        ],
+        loads: [
+          {
+            id: 'W1',
+            type: 'distributed',
+            xStart: 0.0,
+            xEnd: 8.0,
+            wStart: 6.0,
+            wEnd: 6.0,
+            label: 'w = 6 kN/m (Ambos vanos)',
+          },
+        ],
+      },
+    },
+  ];
+}
