@@ -7,6 +7,8 @@ interface BeamSchematicProps {
 }
 
 export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions = [] }) => {
+  const rawId = React.useId();
+  const uid = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
   const L = Math.max(0.1, model.length);
 
   // SVG canvas dimensions with comfortable vertical spacing
@@ -38,38 +40,38 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
       >
         <defs>
           {/* Arrow markers */}
-          <marker id="arrow-down" viewBox="0 0 10 10" refX="5" refY="10" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id={`${uid}-arrow-down`} viewBox="0 0 10 10" refX="5" refY="10" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 0 L 10 0 L 5 10 z" fill="#38bdf8" />
           </marker>
-          <marker id="arrow-up" viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id={`${uid}-arrow-up`} viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 10 L 10 10 L 5 0 z" fill="#38bdf8" />
           </marker>
-          <marker id="arrow-reaction" viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id={`${uid}-arrow-reaction`} viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 10 L 10 10 L 5 0 z" fill="#f59e0b" />
           </marker>
-          <marker id="arrow-reaction-down" viewBox="0 0 10 10" refX="5" refY="10" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id={`${uid}-arrow-reaction-down`} viewBox="0 0 10 10" refX="5" refY="10" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 0 L 10 0 L 5 10 z" fill="#f59e0b" />
           </marker>
-          <marker id="arrow-moment" viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id={`${uid}-arrow-moment`} viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 10 L 10 10 L 5 0 z" fill="#c084fc" />
           </marker>
-          <marker id="arrow-mr" viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id={`${uid}-arrow-mr`} viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 10 L 10 10 L 5 0 z" fill="#f59e0b" />
           </marker>
 
           {/* Gradients */}
-          <linearGradient id="beam-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={`${uid}-beam-grad`} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="#64748b" />
             <stop offset="50%" stopColor="#94a3b8" />
             <stop offset="100%" stopColor="#475569" />
           </linearGradient>
-          <linearGradient id="dist-load-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={`${uid}-dist-load-grad`} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="rgba(56, 189, 248, 0.45)" />
             <stop offset="100%" stopColor="rgba(56, 189, 248, 0.05)" />
           </linearGradient>
 
           {/* Support Hatch Pattern */}
-          <pattern id="hatch" width="6" height="6" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+          <pattern id={`${uid}-hatch`} width="6" height="6" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
             <line x1="0" y1="0" x2="0" y2="6" stroke="#475569" strokeWidth="1.2" />
           </pattern>
         </defs>
@@ -102,7 +104,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
                   y2={beamY - 7}
                   stroke="#38bdf8"
                   strokeWidth="1.2"
-                  markerEnd="url(#arrow-down)"
+                  markerEnd={`url(#${uid}-arrow-down)`}
                 />
               );
             }
@@ -111,7 +113,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
               <g key={load.id} className="load-distributed">
                 <polygon
                   points={`${x1},${beamY - 6} ${x1},${y1} ${x2},${y2} ${x2},${beamY - 6}`}
-                  fill="url(#dist-load-grad)"
+                  fill={`url(#${uid}-dist-load-grad)`}
                   stroke="#38bdf8"
                   strokeWidth="1.5"
                 />
@@ -140,7 +142,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
           width={usableWidth}
           height="12"
           rx="2"
-          fill="url(#beam-grad)"
+          fill={`url(#${uid}-beam-grad)`}
           stroke="#334155"
           strokeWidth="1.5"
         />
@@ -155,7 +157,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
             const arrowLen = 38;
             const yStart = isDown ? beamY - 7 - arrowLen : beamY + 7 + arrowLen;
             const yEnd = isDown ? beamY - 7 : beamY + 7;
-            const marker = isDown ? 'url(#arrow-down)' : 'url(#arrow-up)';
+            const marker = isDown ? `url(#${uid}-arrow-down)` : `url(#${uid}-arrow-up)`;
 
             return (
               <g key={load.id} className="load-point">
@@ -214,7 +216,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
                   fill="none"
                   stroke="#c084fc"
                   strokeWidth="2.2"
-                  markerEnd="url(#arrow-moment)"
+                  markerEnd={`url(#${uid}-arrow-moment)`}
                 />
                 <text
                   x={sx}
@@ -248,7 +250,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
                   y={beamY - wallH / 2}
                   width={wallW}
                   height={wallH}
-                  fill="url(#hatch)"
+                  fill={`url(#${uid}-hatch)`}
                   stroke="#94a3b8"
                   strokeWidth="1.5"
                 />
@@ -276,7 +278,10 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
           }
 
           if (sup.type === 'pin') {
-            // Articulación (Pin)
+            // Articulación (Pin): etiqueta lateral para no colisionar con flecha vertical de reacción
+            const isNearRight = sup.x > L * 0.85;
+            const labelX = isNearRight ? sx - 18 : sx + 18;
+            const labelAnchor = isNearRight ? 'end' : 'start';
             return (
               <g key={sup.id} className="support-pin">
                 <polygon
@@ -287,14 +292,15 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
                 />
                 <circle cx={sx} cy={beamY + 6} r="2.5" fill="#38bdf8" />
                 <line x1={sx - 16} y1={beamY + 26} x2={sx + 16} y2={beamY + 26} stroke="#64748b" strokeWidth="2" />
-                <rect x={sx - 16} y={beamY + 27} width="32" height="6" fill="url(#hatch)" />
+                <rect x={sx - 16} y={beamY + 27} width="32" height="6" fill={`url(#${uid}-hatch)`} />
                 <text
-                  x={sx}
-                  y={beamY + 45}
+                  x={labelX}
+                  y={beamY + 22}
                   fill="#94a3b8"
                   fontSize="10"
                   fontFamily="JetBrains Mono, monospace"
-                  textAnchor="middle"
+                  textAnchor={labelAnchor}
+                  fontWeight="600"
                 >
                   {sup.label || `Pin x=${sup.x}m`}
                 </text>
@@ -303,7 +309,10 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
           }
 
           if (sup.type === 'roller') {
-            // Rodillo
+            // Rodillo: etiqueta lateral para no colisionar con flecha vertical de reacción
+            const isNearRight = sup.x > L * 0.85;
+            const labelX = isNearRight ? sx - 18 : sx + 18;
+            const labelAnchor = isNearRight ? 'end' : 'start';
             return (
               <g key={sup.id} className="support-roller">
                 <polygon
@@ -316,14 +325,15 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
                 <circle cx={sx - 6} cy={beamY + 25} r="2.5" fill="#94a3b8" />
                 <circle cx={sx + 6} cy={beamY + 25} r="2.5" fill="#94a3b8" />
                 <line x1={sx - 16} y1={beamY + 28} x2={sx + 16} y2={beamY + 28} stroke="#64748b" strokeWidth="2" />
-                <rect x={sx - 16} y={beamY + 29} width="32" height="6" fill="url(#hatch)" />
+                <rect x={sx - 16} y={beamY + 29} width="32" height="6" fill={`url(#${uid}-hatch)`} />
                 <text
-                  x={sx}
-                  y={beamY + 47}
+                  x={labelX}
+                  y={beamY + 22}
                   fill="#94a3b8"
                   fontSize="10"
                   fontFamily="JetBrains Mono, monospace"
-                  textAnchor="middle"
+                  textAnchor={labelAnchor}
+                  fontWeight="600"
                 >
                   {sup.label || `Rodillo x=${sup.x}m`}
                 </text>
@@ -341,9 +351,28 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
           const hasMr = r.Mr !== undefined && Math.abs(r.Mr) > 1e-4;
 
           const isUp = r.Ry >= 0;
-          const ryArrowStart = isUp ? beamY + 75 : beamY - 45;
-          const ryArrowEnd = isUp ? beamY + 42 : beamY + 8;
-          const marker = isUp ? 'url(#arrow-reaction)' : 'url(#arrow-reaction-down)';
+          const ryArrowStart = isUp ? beamY + 76 : beamY - 45;
+          const ryArrowEnd = isUp ? beamY + 36 : beamY + 8;
+          const marker = isUp ? `url(#${uid}-arrow-reaction)` : `url(#${uid}-arrow-reaction-down)`;
+
+          const isLeft = r.x <= L / 2;
+
+          let mrPath = '';
+          if (hasMr) {
+            if (isLeft) {
+              // Left support: moment arc strictly on beam side (x > rx), never into wall
+              mrPath =
+                r.Mr! >= 0
+                  ? `M ${rx + 6} ${beamY + 18} A 20 20 0 0 0 ${rx + 6} ${beamY - 18}`
+                  : `M ${rx + 6} ${beamY - 18} A 20 20 0 0 1 ${rx + 6} ${beamY + 18}`;
+            } else {
+              // Right support: moment arc strictly on beam side (x < rx), never into wall
+              mrPath =
+                r.Mr! < 0
+                  ? `M ${rx - 6} ${beamY + 18} A 20 20 0 0 1 ${rx - 6} ${beamY - 18}`
+                  : `M ${rx - 6} ${beamY - 18} A 20 20 0 0 0 ${rx - 6} ${beamY + 18}`;
+            }
+          }
 
           return (
             <g key={r.supportId} className="reaction-preview">
@@ -361,7 +390,7 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
                   />
                   <text
                     x={rx}
-                    y={isUp ? beamY + 89 : beamY - 50}
+                    y={isUp ? beamY + 90 : beamY - 50}
                     fill="#f59e0b"
                     fontSize="10.5"
                     fontFamily="JetBrains Mono, monospace"
@@ -377,24 +406,20 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
               {hasMr && (
                 <g className="reaction-moment">
                   <path
-                    d={
-                      r.Mr! >= 0
-                        ? `M ${rx - 24} ${beamY} A 24 24 0 1 1 ${rx} ${beamY - 24}`
-                        : `M ${rx + 24} ${beamY} A 24 24 0 1 0 ${rx} ${beamY - 24}`
-                    }
+                    d={mrPath}
                     fill="none"
                     stroke="#f59e0b"
                     strokeWidth="2"
                     strokeDasharray="3 2"
-                    markerEnd="url(#arrow-mr)"
+                    markerEnd={`url(#${uid}-arrow-mr)`}
                   />
                   <text
-                    x={rx}
-                    y={beamY - 30}
+                    x={isLeft ? rx + 22 : rx - 22}
+                    y={beamY - 26}
                     fill="#f59e0b"
                     fontSize="10"
                     fontFamily="JetBrains Mono, monospace"
-                    textAnchor="middle"
+                    textAnchor={isLeft ? 'start' : 'end'}
                     fontWeight="700"
                   >
                     Mr = {r.Mr!.toFixed(2)} kN·m
@@ -426,3 +451,4 @@ export const BeamSchematic: React.FC<BeamSchematicProps> = ({ model, reactions =
     </div>
   );
 };
+
