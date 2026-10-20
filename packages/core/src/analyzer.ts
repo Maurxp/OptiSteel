@@ -11,6 +11,12 @@ import {
   calculateFlexuralRigidity,
   solveDeflections,
 } from './elasticity.js';
+import {
+  analyzeContinuousBeam,
+  analyzeFixedFixedBeam,
+  analyzeProppedCantileverBeam,
+  generateHyperstaticDidacticReport,
+} from './hyperstatic/index.js';
 
 export class StructuralAnalysisError extends Error {
   public readonly errors: string[];
@@ -38,6 +44,32 @@ export function analyzeBeam(model: BeamModel): BeamAnalysisResult {
       `Modelo estructural inválido (${validation.classification}):\n- ${validation.errors.join('\n- ')}`,
       validation.errors
     );
+  }
+
+  if (validation.classification === 'hyperstatic') {
+    const fixedCount = model.supports.filter((s) => s.type === 'fixed').length;
+    let hyperResult: BeamAnalysisResult;
+    if (model.supports.length === 2) {
+      if (fixedCount === 1) {
+        hyperResult = analyzeProppedCantileverBeam(model);
+      } else if (fixedCount === 2) {
+        hyperResult = analyzeFixedFixedBeam(model);
+      } else {
+        throw new StructuralAnalysisError(
+          'Configuración hiperestática no soportada por el motor de análisis.',
+          ['Configuración hiperestática no soportada por el motor de análisis.']
+        );
+      }
+    } else if (model.supports.length === 3) {
+      hyperResult = analyzeContinuousBeam(model);
+    } else {
+      throw new StructuralAnalysisError(
+        'Configuración hiperestática no soportada por el motor de análisis.',
+        ['Configuración hiperestática no soportada por el motor de análisis.']
+      );
+    }
+    hyperResult.didacticReport = generateHyperstaticDidacticReport(hyperResult);
+    return hyperResult;
   }
 
   const { reactions, equilibrium } = calculateReactions(model);

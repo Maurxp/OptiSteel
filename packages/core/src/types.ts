@@ -267,6 +267,31 @@ export interface DeflectionPlaceholder {
   note: string;
 }
 
+export interface DidacticStep {
+  stepNumber: number;
+  title: string;
+  principle: string;
+  formulation?: string;
+  substitution?: string;
+  result: string;
+  check?: {
+    description: string;
+    isVerified: boolean;
+    errorMargin?: number;
+  };
+}
+
+export interface DidacticReport {
+  caseId: 'H1' | 'H2' | 'H3' | 'H4' | 'ISOSTATIC' | 'CUSTOM_HYPERSTATIC';
+  caseName: string;
+  degreeOfIndeterminacy: number;
+  redundantReactions: string[];
+  primaryStructure: string;
+  compatibilityConditions: string[];
+  steps: DidacticStep[];
+  conclusions: string[];
+}
+
 export interface BeamAnalysisResult {
   model: BeamModel;
   isStaticDeterminate: boolean;
@@ -275,6 +300,7 @@ export interface BeamAnalysisResult {
   shear: FunctionAnalysis<ShearSegment>;
   moment: FunctionAnalysis<MomentSegment>;
   deflection: DeflectionPlaceholder | DeflectionAnalysis;
+  didacticReport?: DidacticReport;
 }
 
 export type DeterminacyClassification =

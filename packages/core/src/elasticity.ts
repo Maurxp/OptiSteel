@@ -340,7 +340,7 @@ export function solveDeflections(
     C1 = -thP;
     C2 = -C1 * xs - yP;
   }
-  // Case 2: Two simple supports (pin/roller) at x1 < x2
+  // Case 2: Two supports
   else if (supports.length === 2) {
     const s1 = supports[0]!;
     const s2 = supports[1]!;
@@ -352,18 +352,55 @@ export function solveDeflections(
       throw new ElasticityError('Apoyos coincidentes en el solucionador de deflexiones.');
     }
 
-    const { yPart: yP1 } = evaluateParticular(x1);
-    const { yPart: yP2 } = evaluateParticular(x2);
+    // Check if one of the supports is fixed (propped cantilever or fixed-fixed)
+    if (s1.type === 'fixed') {
+      const { thetaPart: thP, yPart: yP } = evaluateParticular(x1);
+      C1 = -thP;
+      C2 = -C1 * x1 - yP;
+    } else if (s2.type === 'fixed') {
+      const { thetaPart: thP, yPart: yP } = evaluateParticular(x2);
+      C1 = -thP;
+      C2 = -C1 * x2 - yP;
+    } else {
+      // Both are simple supports (pin/roller)
+      const { yPart: yP1 } = evaluateParticular(x1);
+      const { yPart: yP2 } = evaluateParticular(x2);
 
-    // Boundary conditions: y(x1) = 0, y(x2) = 0
-    // C2 + C1*x1 + yP1 = 0
-    // C2 + C1*x2 + yP2 = 0
-    // Subtracting: C1*(x2 - x1) + (yP2 - yP1) = 0 => C1 = -(yP2 - yP1) / (x2 - x1)
-    C1 = -(yP2 - yP1) / span;
+      // Boundary conditions: y(x1) = 0, y(x2) = 0
+      // C2 + C1*x1 + yP1 = 0
+      // C2 + C1*x2 + yP2 = 0
+      // Subtracting: C1*(x2 - x1) + (yP2 - yP1) = 0 => C1 = -(yP2 - yP1) / (x2 - x1)
+      C1 = -(yP2 - yP1) / span;
+      C2 = -C1 * x1 - yP1;
+    }
+  }
+  // Case 3: Three supports (two-span continuous beam)
+  else if (supports.length === 3) {
+    const s1 = supports[0]!;
+    const s2 = supports[1]!;
+    const s3 = supports[2]!;
+    const x1 = s1.x;
+    const x2 = s2.x;
+    const x3 = s3.x;
+    const span = x3 - x1;
+
+    if (
+      Math.abs(span) < LENGTH_TOLERANCE ||
+      Math.abs(x2 - x1) < LENGTH_TOLERANCE ||
+      Math.abs(x3 - x2) < LENGTH_TOLERANCE
+    ) {
+      throw new ElasticityError('Apoyos coincidentes en el solucionador de deflexiones.');
+    }
+
+    // Outer supports determine global integration constants: y(x1) = 0, y(x3) = 0
+    const { yPart: yP1 } = evaluateParticular(x1);
+    const { yPart: yP3 } = evaluateParticular(x3);
+
+    C1 = -(yP3 - yP1) / span;
     C2 = -C1 * x1 - yP1;
   } else {
     throw new ElasticityError(
-      `El solucionador de deflexiones isostático requiere 1 empotramiento o 2 apoyos simples. Recibidos: ${supports.length}.`
+      `El solucionador de deflexiones requiere 1 empotramiento, 2 apoyos (simples, empotrado-apoyado o biempotrado) o 3 apoyos simples continuos. Recibidos: ${supports.length}.`
     );
   }
 

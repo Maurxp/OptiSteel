@@ -110,18 +110,85 @@ export function validateBeamModel(model: BeamModel): ValidationResult {
         (s1.type === 'fixed' ? 1 : 0) + (s2.type === 'fixed' ? 1 : 0);
       if (fixedCount > 0) {
         classification = 'hyperstatic';
-        errors.push(
-          'La combinación de dos apoyos con al menos un empotramiento es estáticamente indeterminada (hiperestática).'
-        );
+        if (fixedCount === 1) {
+          // Supported H1 and H2 configurations: 1 fixed, 1 simple support, point and/or distributed loads
+          const hasUnsupportedLoads = model.loads.some(
+            (l) => l.type !== 'point' && l.type !== 'distributed'
+          );
+          if (hasUnsupportedLoads) {
+            errors.push(
+              'Configuración hiperestática aún no soportada: vigas empotradas-apoyadas con momentos aplicados aún no están implementadas.'
+            );
+          } else if (!model.material || !model.section) {
+            errors.push(
+              'El análisis de vigas hiperestáticas (empotrada-apoyada) requiere propiedades de material (E en GPa) y sección (Iz en cm^4).'
+            );
+          }
+        } else if (fixedCount === 2) {
+          // Supported H3 configuration: 2 fixed supports, point and/or distributed loads
+          const hasUnsupportedLoads = model.loads.some(
+            (l) => l.type !== 'point' && l.type !== 'distributed'
+          );
+          if (hasUnsupportedLoads) {
+            errors.push(
+              'Configuración hiperestática aún no soportada: vigas biempotradas con momentos aplicados aún no están implementadas.'
+            );
+          } else if (!model.material || !model.section) {
+            errors.push(
+              'El análisis de vigas hiperestáticas (biempotrada) requiere propiedades de material (E en GPa) y sección (Iz en cm^4).'
+            );
+          }
+        }
       } else {
         classification = 'isostatic'; // Two simple supports (pin/roller or roller/roller)
       }
     }
+  } else if (supports.length === 3) {
+    // 3 supports: two-span continuous beam (H4)
+    classification = 'hyperstatic';
+    const hasFixed = supports.some((s) => s.type === 'fixed');
+    if (hasFixed) {
+      errors.push(
+        'Configuración hiperestática aún no soportada: vigas continuas con empotramientos aún no están implementadas.'
+      );
+    } else {
+      const s1 = supports[0]!;
+      const s2 = supports[1]!;
+      const s3 = supports[2]!;
+      const L1 = s2.x - s1.x;
+      const L2 = s3.x - s2.x;
+      const areSpansEqual = Math.abs(L1 - L2) < 1e-3;
+
+      // H4 requires uniform distributed load over both spans
+      const isUniformOverBothSpans =
+        model.loads.length > 0 &&
+        model.loads.every(
+          (l) =>
+            l.type === 'distributed' &&
+            Math.abs(l.wStart - l.wEnd) < 1e-6
+        ) &&
+        model.loads.some(
+          (l) =>
+            l.type === 'distributed' &&
+            l.xStart <= s1.x + 1e-6 &&
+            l.xEnd >= s3.x - 1e-6
+        );
+
+      if (!areSpansEqual || !isUniformOverBothSpans) {
+        errors.push(
+          'Configuración hiperestática aún no soportada: vigas continuas con cargas puntuales, vanos desiguales o cargas parciales aún no están implementadas (solo Caso H4: dos vanos iguales con carga uniforme continua).'
+        );
+      } else if (!model.material || !model.section) {
+        errors.push(
+          'El análisis de vigas hiperestáticas continuas requiere propiedades de material (E en GPa) y sección (Iz en cm^4).'
+        );
+      }
+    }
   } else {
-    // 3 or more supports
+    // 4 or more supports
     classification = 'hyperstatic';
     errors.push(
-      `El modelo tiene ${supports.length} apoyos, lo cual supera los 2 grados de restricción isostáticos (viga continua hiperestática).`
+      `El modelo tiene ${supports.length} apoyos, lo cual supera los 3 apoyos soportados (viga continua hiperestática de más de 2 vanos aún no soportada).`
     );
   }
 

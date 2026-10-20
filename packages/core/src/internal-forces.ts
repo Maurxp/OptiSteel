@@ -445,6 +445,38 @@ export function buildInternalForces(
         }
       }
     }
+
+    // Zero-crossings of M(x) = 0 (inflection points)
+    if (Math.abs(mSeg.d2) < 1e-12 && Math.abs(mSeg.d3) < 1e-12) {
+      if (Math.abs(mSeg.d1) > 1e-12) {
+        const xiZero = -mSeg.d0 / mSeg.d1;
+        if (xiZero > LENGTH_TOLERANCE && xiZero < h - LENGTH_TOLERANCE) {
+          momentPoints.push({
+            x: mSeg.xStart + xiZero,
+            value: 0,
+            type: 'zero_crossing',
+            description: `Punto de inflexión del momento flector (M=0) en x=${(mSeg.xStart + xiZero).toFixed(4)} m`,
+          });
+        }
+      }
+    } else if (Math.abs(mSeg.d3) < 1e-12) {
+      const discrM = mSeg.d1 * mSeg.d1 - 4 * mSeg.d2 * mSeg.d0;
+      if (discrM >= 0) {
+        const sqrtDM = Math.sqrt(discrM);
+        const xi1 = (-mSeg.d1 + sqrtDM) / (2 * mSeg.d2);
+        const xi2 = (-mSeg.d1 - sqrtDM) / (2 * mSeg.d2);
+        for (const xi of [xi1, xi2]) {
+          if (xi > LENGTH_TOLERANCE && xi < h - LENGTH_TOLERANCE) {
+            momentPoints.push({
+              x: mSeg.xStart + xi,
+              value: 0,
+              type: 'zero_crossing',
+              description: `Punto de inflexión del momento flector (M=0) en x=${(mSeg.xStart + xi).toFixed(4)} m`,
+            });
+          }
+        }
+      }
+    }
   }
 
   for (const disc of momentDiscontinuities) {

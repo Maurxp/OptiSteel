@@ -12,3 +12,4 @@ export * from './pytel-singer-cases.js';
 export * from './analyzer.js';
 export * from './catalog/steel-profiles.js';
 export * from './steel-design/index.js';
+export * from './hyperstatic/index.js';
