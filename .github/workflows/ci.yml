@@ -46,11 +46,14 @@ jobs:
       - name: Run Web Integration Tests (@optisteel/web)
         run: pnpm test:web
 
+      - name: Build Core Package (@optisteel/core)
+        run: pnpm build:core
+
       - name: Typecheck Monorepo (tsc --noEmit)
         run: pnpm typecheck
 
-      - name: Build Packages (@optisteel/core & @optisteel/web)
-        run: pnpm build
+      - name: Build Web Application (@optisteel/web)
+        run: pnpm build:web
 
       - name: Verify Web Production Artifacts
         run: |
