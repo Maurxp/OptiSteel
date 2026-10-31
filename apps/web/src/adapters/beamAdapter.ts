@@ -84,6 +84,22 @@ export function adaptFormToBeamModel(form: BeamFormState): BeamModel {
       Iz: form.Iz,
     };
     if (form.sectionName) sec.name = form.sectionName;
+    if (form.sectionType) sec.type = form.sectionType;
+    if (typeof form.widthMm === 'number' && Number.isFinite(form.widthMm) && form.widthMm > 0) sec.widthMm = form.widthMm;
+    if (typeof form.heightMm === 'number' && Number.isFinite(form.heightMm) && form.heightMm > 0) sec.heightMm = form.heightMm;
+    if (typeof form.webThicknessMm === 'number' && Number.isFinite(form.webThicknessMm) && form.webThicknessMm > 0) sec.webThicknessMm = form.webThicknessMm;
+    if (typeof form.flangeThicknessMm === 'number' && Number.isFinite(form.flangeThicknessMm) && form.flangeThicknessMm > 0) sec.flangeThicknessMm = form.flangeThicknessMm;
+    if (typeof form.flangeWidthMm === 'number' && Number.isFinite(form.flangeWidthMm) && form.flangeWidthMm > 0) sec.flangeWidthMm = form.flangeWidthMm;
+    if (typeof form.diameterMm === 'number' && Number.isFinite(form.diameterMm) && form.diameterMm > 0) sec.diameterMm = form.diameterMm;
+    if (typeof form.cMm === 'number' && Number.isFinite(form.cMm) && form.cMm > 0) sec.cMm = form.cMm;
+    if (typeof form.Wz === 'number' && Number.isFinite(form.Wz) && form.Wz > 0) sec.Wz = form.Wz;
+    if (typeof form.areaCm2 === 'number' && Number.isFinite(form.areaCm2) && form.areaCm2 > 0) sec.areaCm2 = form.areaCm2;
+    if (typeof form.allowableBendingStressMPa === 'number' && Number.isFinite(form.allowableBendingStressMPa) && form.allowableBendingStressMPa > 0)
+      sec.allowableBendingStressMPa = form.allowableBendingStressMPa;
+    if (typeof form.allowableShearStressMPa === 'number' && Number.isFinite(form.allowableShearStressMPa) && form.allowableShearStressMPa > 0)
+      sec.allowableShearStressMPa = form.allowableShearStressMPa;
+    if (typeof form.deflectionLimitDenominator === 'number' && Number.isFinite(form.deflectionLimitDenominator) && form.deflectionLimitDenominator > 0)
+      sec.deflectionLimitDenominator = form.deflectionLimitDenominator;
     model.section = sec;
   }
 

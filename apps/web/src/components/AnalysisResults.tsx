@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { BeamAnalysisResult, PointLoad, MomentLoad } from '@optisteel/core';
 import { DiagramChart } from './DiagramChart.js';
 import { DidacticReportView } from './DidacticReportView.js';
+import { MaterialsMechanicsPanel } from './MaterialsMechanicsPanel.js';
 
 interface AnalysisResultsProps {
   analysis: BeamAnalysisResult;
@@ -217,6 +218,69 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ analysis }) =>
         </div>
 
         <div className="metric-card purple">
+          <span className="metric-label">Esfuerzo Flexión Máx (σ)</span>
+          {analysis.mechanics?.bending.actualStressMPa !== undefined ? (
+            <>
+              <span className="metric-value">
+                {analysis.mechanics.bending.actualStressMPa.toFixed(2)} MPa
+              </span>
+              <span className="metric-sub">
+                en x = {analysis.mechanics.bending.maxMomentLocationM.toFixed(2)} m (
+                {analysis.mechanics.bending.extremeFibers.top === 'tension'
+                  ? 'Tracción sup.'
+                  : 'Compresión sup.'}
+                )
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="metric-value" style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>
+                No disponible
+              </span>
+              <span className="metric-sub">Requiere módulo Sz o peralte h</span>
+            </>
+          )}
+        </div>
+
+        <div className="metric-card rose">
+          <span className="metric-label">Esfuerzo Cortante (τ)</span>
+          {analysis.mechanics?.shear.maxShearStressMPa !== undefined ? (
+            <>
+              <span className="metric-value">
+                {analysis.mechanics.shear.maxShearStressMPa.toFixed(2)} MPa
+              </span>
+              <span className="metric-sub">
+                {analysis.mechanics.shear.calculationMethod === 'jourawski_neutral_axis' ||
+                analysis.mechanics.shear.shearDistributionType === 'i_shape_web'
+                  ? 'τmáx — Jourawski en eje neutro'
+                  : analysis.mechanics.shear.shearDistributionType === 'rectangular'
+                  ? 'τmáx — Rectangular (1.5·V/A)'
+                  : 'τmáx — Circular (4/3·V/A)'}
+              </span>
+            </>
+          ) : analysis.mechanics?.shear.averageShearStressMPa !== undefined ? (
+            <>
+              <span className="metric-value">
+                {analysis.mechanics.shear.averageShearStressMPa.toFixed(2)} MPa
+              </span>
+              <span className="metric-sub">
+                {analysis.mechanics.shear.calculationMethod === 'web_average' ||
+                analysis.mechanics.shear.averageFormula.includes('alma')
+                  ? 'τ_alma_prom — Promedio en alma (d·tw)'
+                  : 'τ_prom — Promedio de sección (V/A)'}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="metric-value" style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>
+                No disponible
+              </span>
+              <span className="metric-sub">Requiere área de sección</span>
+            </>
+          )}
+        </div>
+
+        <div className="metric-card purple">
           <span className="metric-label">Deflexión Máxima |δ|</span>
           {isDeflectionCalculated ? (
             <>
@@ -395,7 +459,10 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({ analysis }) =>
         </div>
       )}
 
-      {/* 6. Summary Table of Critical Points */}
+      {/* 6. Panel de Resistencia de Materiales y Desarrollo Matemático */}
+      <MaterialsMechanicsPanel analysis={analysis} />
+
+      {/* 7. Summary Table of Critical Points */}
       <div className="glass-panel">
         <div className="panel-header" style={{ marginBottom: showCriticalPoints ? '1rem' : '0' }}>
           <h3 className="panel-title">

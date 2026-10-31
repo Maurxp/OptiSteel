@@ -17,6 +17,7 @@ import {
   analyzeProppedCantileverBeam,
   generateHyperstaticDidacticReport,
 } from './hyperstatic/index.js';
+import { computeMaterialsMechanics } from './mechanics/index.js';
 
 export class StructuralAnalysisError extends Error {
   public readonly errors: string[];
@@ -69,6 +70,7 @@ export function analyzeBeam(model: BeamModel): BeamAnalysisResult {
       );
     }
     hyperResult.didacticReport = generateHyperstaticDidacticReport(hyperResult);
+    hyperResult.mechanics = computeMaterialsMechanics(hyperResult);
     return hyperResult;
   }
 
@@ -87,7 +89,7 @@ export function analyzeBeam(model: BeamModel): BeamAnalysisResult {
     };
   }
 
-  return {
+  const result: BeamAnalysisResult = {
     model,
     isStaticDeterminate: true,
     reactions,
@@ -96,4 +98,7 @@ export function analyzeBeam(model: BeamModel): BeamAnalysisResult {
     moment,
     deflection,
   };
+
+  result.mechanics = computeMaterialsMechanics(result);
+  return result;
 }

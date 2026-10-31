@@ -152,6 +152,7 @@ body {
   letter-spacing: -0.02em;
   background: linear-gradient(to right, #ffffff, #94a3b8);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   line-height: 1.2;
 }
@@ -607,7 +608,7 @@ body {
    ========================================================================== */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
   min-width: 0;

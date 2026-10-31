@@ -606,5 +606,7 @@ export function solveDeflections(
     evaluate: evaluateDeflection,
     evaluateSlope,
     EI,
+    integrationConstants: { C1, C2 },
+    slopeSegments,
   };
 }

@@ -32,6 +32,20 @@ export interface BeamFormState {
   E: number; // GPa
   sectionName: string;
   Iz: number; // cm^4
+  // Extended section geometry for Mechanics of Materials:
+  sectionType?: 'rectangular' | 'i_shape' | 'circular' | 'general' | undefined;
+  widthMm?: number | undefined; // b in mm
+  heightMm?: number | undefined; // h in mm
+  webThicknessMm?: number | undefined;
+  flangeThicknessMm?: number | undefined;
+  flangeWidthMm?: number | undefined;
+  diameterMm?: number | undefined;
+  cMm?: number | undefined;
+  Wz?: number | undefined; // cm^3
+  areaCm2?: number | undefined;
+  allowableBendingStressMPa?: number | undefined;
+  allowableShearStressMPa?: number | undefined;
+  deflectionLimitDenominator?: number | undefined;
   supports: FormSupport[];
   loads: FormLoad[];
 }

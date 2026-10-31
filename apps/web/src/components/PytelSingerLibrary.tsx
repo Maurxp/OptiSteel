@@ -35,8 +35,18 @@ export const PytelSingerLibrary: React.FC<PytelSingerLibraryProps> = ({ onLoadCa
       length: model.length,
       materialName: 'Acero A36 (E = 200 GPa)',
       E: 200.0,
-      sectionName: 'W10x30 (Iz = 7076 cm⁴)',
+      sectionName: 'W10x30 (Sección de prueba sugerida por OptiSteel)',
       Iz: 7076.0,
+      sectionType: 'i_shape',
+      Wz: 434.0,
+      heightMm: 267.0,
+      webThicknessMm: 7.6,
+      flangeWidthMm: 147.0,
+      flangeThicknessMm: 11.2,
+      areaCm2: 57.0,
+      allowableBendingStressMPa: 150.0,
+      allowableShearStressMPa: 100.0,
+      deflectionLimitDenominator: 360,
       supports: model.supports.map((s) => {
         const item: FormSupport = {
           id: s.id,
@@ -88,6 +98,23 @@ export const PytelSingerLibrary: React.FC<PytelSingerLibraryProps> = ({ onLoadCa
             <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '0.25rem' }}>
               Fuente primaria: "Resistencia de Materiales", 4.ª Edición (pp. 218–219). Fórmulas teóricas de referencia contrastadas independientemente.
             </p>
+            <div
+              className="alert alert-info"
+              style={{
+                marginTop: '0.75rem',
+                marginBottom: 0,
+                fontSize: '0.8rem',
+                padding: '0.65rem 0.85rem',
+                display: 'flex',
+                gap: '0.5rem',
+                alignItems: 'flex-start',
+              }}
+            >
+              <span style={{ fontSize: '1rem', lineHeight: 1 }}>ℹ️</span>
+              <div>
+                <strong>Sección de prueba sugerida por OptiSteel:</strong> Al cargar un caso se pre-asigna un perfil <code>W10×30</code> (con <code>Iz = 7076 cm⁴</code>) únicamente para ilustrar los cálculos de resistencia de materiales. Los ejercicios originales de Pytel-Singer no especifican esta sección (plantean soluciones simbólicas en función de <em>EI</em>); el usuario puede modificarla, sustituirla o eliminarla libremente en el formulario.
+              </div>
+            </div>
           </div>
 
           <div className="pytel-filter-buttons">

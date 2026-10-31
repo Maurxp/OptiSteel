@@ -18,6 +18,8 @@
  * - dM/dx = V(x)
  */
 
+import type { MaterialsMechanicsResult } from './mechanics/types.js';
+
 export type SupportType = 'pin' | 'roller' | 'fixed';
 
 export interface Support {
@@ -71,13 +73,37 @@ export interface BeamMaterial {
   E: number;
 }
 
-/** Cross-section geometric properties contract (prepared for Phase 2 deflection) */
+/** Cross-section geometric properties contract */
 export interface BeamSection {
-  name?: string;
+  name?: string | undefined;
+  /** Cross-section geometric model family */
+  type?: 'rectangular' | 'i_shape' | 'circular' | 'general' | undefined;
   /** Moment of inertia about bending axis in cm^4 */
   Iz: number;
   /** Elastic section modulus in cm^3 */
-  Wz?: number;
+  Wz?: number | undefined;
+  /** Width / base of section in mm (e.g. for rectangular or flange width for I-shape) */
+  widthMm?: number | undefined;
+  /** Total height / depth of section in mm */
+  heightMm?: number | undefined;
+  /** Web thickness in mm (for I/W shapes and channels) */
+  webThicknessMm?: number | undefined;
+  /** Flange thickness in mm (for I/W shapes and channels) */
+  flangeThicknessMm?: number | undefined;
+  /** Flange width in mm (for I/W shapes and channels) */
+  flangeWidthMm?: number | undefined;
+  /** Diameter in mm (for circular solid sections) */
+  diameterMm?: number | undefined;
+  /** Distance from neutral axis to extreme fiber in mm */
+  cMm?: number | undefined;
+  /** Total cross-sectional area in cm^2 */
+  areaCm2?: number | undefined;
+  /** Allowable bending normal stress in MPa (optional) */
+  allowableBendingStressMPa?: number | undefined;
+  /** Allowable shear stress in MPa (optional) */
+  allowableShearStressMPa?: number | undefined;
+  /** Service deflection limit denominator n for L/n (e.g. 360, optional) */
+  deflectionLimitDenominator?: number | undefined;
 }
 
 /**
@@ -260,6 +286,15 @@ export interface DeflectionAnalysis {
   evaluateSlope: (x: number) => number;
   /** Flexural rigidity in kN*m^2 */
   EI: number;
+  /** Global integration constants resolved from boundary conditions */
+  integrationConstants?: {
+    /** Slope theta(0) in radians */
+    C1: number;
+    /** Deflection v(0) in meters */
+    C2: number;
+  };
+  /** Piecewise slope polynomial segments */
+  slopeSegments?: SlopeSegment[];
 }
 
 export interface DeflectionPlaceholder {
@@ -301,6 +336,8 @@ export interface BeamAnalysisResult {
   moment: FunctionAnalysis<MomentSegment>;
   deflection: DeflectionPlaceholder | DeflectionAnalysis;
   didacticReport?: DidacticReport;
+  /** Mechanics of Materials (Resistencia de Materiales) comprehensive postprocessing results */
+  mechanics?: MaterialsMechanicsResult;
 }
 
 export type DeterminacyClassification =

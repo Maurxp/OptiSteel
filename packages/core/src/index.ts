@@ -13,3 +13,4 @@ export * from './analyzer.js';
 export * from './catalog/steel-profiles.js';
 export * from './steel-design/index.js';
 export * from './hyperstatic/index.js';
+export * from './mechanics/index.js';

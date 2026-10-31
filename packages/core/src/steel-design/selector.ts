@@ -1,7 +1,8 @@
-import type { BeamModel, DeflectionAnalysis, Load, SteelProfile } from '../types.js';
+import type { BeamModel, DeflectionAnalysis, DistributedLoad, Load, SteelProfile } from '../types.js';
 import { STEEL_PROFILES, getProfilesByType } from '../catalog/steel-profiles.js';
 import { analyzeBeam, StructuralAnalysisError } from '../analyzer.js';
 import { validateBeamModel } from '../validator.js';
+import { LENGTH_TOLERANCE, LOAD_INTENSITY_TOLERANCE } from '../constants.js';
 import type {
   BendingCheckResult,
   DeflectionCheckResult,
@@ -114,10 +115,100 @@ export function validateSelectionCriteria(criteria: SteelSelectionCriteria): voi
 }
 
 /**
+ * Builds the load list for a candidate steel profile evaluation.
+ *
+ * Methodological Principles (BUG-01 & BUG-02 Resolution):
+ * 1. Physical Domain: Self-weight physically applies to the entire beam domain [0, beamLength].
+ * 2. H4 Compatibility & Superposition (BUG-01): If the base model already has one or more uniform
+ *    distributed loads covering the entire physical beam [0, beamLength], self-weight is combined
+ *    directly and non-destructively into them. This preserves linear superposition (w_total = sum(w_i) + w_pp)
+ *    and satisfies the H4 solver precondition that all distributed loads have uniform and identical intensity.
+ * 3. Physical Overhangs & Solver Scope (BUG-02): If there are no full-span uniform loads (e.g. models with
+ *    point loads, partial loads, or exterior overhangs beyond supports), self-weight is added as an
+ *    independent distributed load across [0, beamLength]. If the beam has overhangs and the solver
+ *    does not support them (as in hyperstatic Cases H1–H4), the model is explicitly rejected by the validator
+ *    rather than silently truncated.
+ */
+export function buildCandidateLoads(
+  baseLoads: readonly Load[],
+  beamLength: number,
+  selfWeightKNPerM: number,
+  profileDesignation: string
+): Load[] {
+  if (selfWeightKNPerM <= 0) {
+    return [...baseLoads];
+  }
+
+  // Identify uniform distributed loads covering the entire physical beam [0, beamLength]
+  const isFullSpanUniform = (l: Load): l is DistributedLoad =>
+    l.type === 'distributed' &&
+    Math.abs(l.xStart) <= LENGTH_TOLERANCE &&
+    Math.abs(l.xEnd - beamLength) <= LENGTH_TOLERANCE &&
+    Math.abs(l.wStart - l.wEnd) <= LOAD_INTENSITY_TOLERANCE;
+
+  const fullSpanUniformLoads: DistributedLoad[] = [];
+  const otherLoads: Load[] = [];
+
+  for (const load of baseLoads) {
+    if (isFullSpanUniform(load)) {
+      fullSpanUniformLoads.push(load);
+    } else {
+      otherLoads.push(load);
+    }
+  }
+
+  if (fullSpanUniformLoads.length > 0) {
+    // Combine self-weight into existing full-span uniform distributed loads
+    const totalExistingW = fullSpanUniformLoads.reduce(
+      (sum, l) => sum + l.wStart,
+      0
+    );
+    const combinedW = totalExistingW + selfWeightKNPerM;
+    const combinedId =
+      fullSpanUniformLoads.length === 1
+        ? fullSpanUniformLoads[0]!.id
+        : fullSpanUniformLoads.map((l) => l.id).join('+');
+    const existingLabels = fullSpanUniformLoads
+      .map((l) => l.label)
+      .filter((lbl): lbl is string => Boolean(lbl));
+    const combinedLabel =
+      existingLabels.length > 0
+        ? `${existingLabels.join(' + ')} + Peso propio (${profileDesignation})`
+        : `Carga + Peso propio (${profileDesignation})`;
+
+    const combinedLoad: DistributedLoad = {
+      id: combinedId,
+      type: 'distributed',
+      xStart: 0,
+      xEnd: beamLength,
+      wStart: combinedW,
+      wEnd: combinedW,
+      label: combinedLabel,
+    };
+
+    return [...otherLoads, combinedLoad];
+  }
+
+  // If there are no full-span uniform distributed loads to combine into,
+  // apply self-weight as an independent distributed load across the entire physical beam [0, beamLength]
+  const selfWeightLoad: DistributedLoad = {
+    id: `self-weight-${profileDesignation}`,
+    type: 'distributed',
+    xStart: 0,
+    xEnd: beamLength,
+    wStart: selfWeightKNPerM,
+    wEnd: selfWeightKNPerM,
+    label: `Peso propio (${profileDesignation})`,
+  };
+
+  return [...otherLoads, selfWeightLoad];
+}
+
+/**
  * Evaluates an individual steel cross-section against a structural beam model and design criteria.
  *
  * Methodological Principles:
- * 1. Self-weight is added directly as a real distributed load over [0, L] on the beam model.
+ * 1. Self-weight is applied over the full physical domain [0, L] of the beam model via `buildCandidateLoads`.
  * 2. Internal forces (M, V) and elastic deflections (y) are solved via the core structural engine `analyzeBeam`.
  * 3. Bending normal stress is computed dimensionally as:
  *      sigma = (|M_max| [kN*m] * 10^6 [N*mm/(kN*m)]) / (Sx [10^3 mm^3] * 10^3 [mm^3/(10^3 mm^3)])
@@ -150,18 +241,12 @@ export function evaluateProfile(
   const selfWeightKNPerM = includeSelfWeight ? (profile.massKgPerM * gravity) / 1000 : 0;
 
   // Build candidate model with candidate's inertia, modulus, and optional self-weight load
-  const candidateLoads: Load[] = [...baseModel.loads];
-  if (selfWeightKNPerM > 0) {
-    candidateLoads.push({
-      id: `self-weight-${profile.designation}`,
-      type: 'distributed',
-      xStart: 0,
-      xEnd: baseModel.length,
-      wStart: selfWeightKNPerM,
-      wEnd: selfWeightKNPerM,
-      label: `Peso propio (${profile.designation})`,
-    });
-  }
+  const candidateLoads = buildCandidateLoads(
+    baseModel.loads,
+    baseModel.length,
+    selfWeightKNPerM,
+    profile.designation
+  );
 
   const candidateModel: BeamModel = {
     ...baseModel,

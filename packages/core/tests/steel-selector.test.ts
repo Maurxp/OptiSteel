@@ -4,13 +4,14 @@ import { STEEL_PROFILES } from '../src/catalog/steel-profiles.js';
 import {
   selectOptimalSteelProfiles,
   evaluateProfile,
+  buildCandidateLoads,
   validateSelectionCriteria,
   SteelDesignValidationError,
   STEEL_DESIGN_LIMITATIONS,
   isSelfWeightLoad,
   SELF_WEIGHT_LOAD_ID_PREFIX,
 } from '../src/steel-design/index.js';
-import { StructuralAnalysisError } from '../src/analyzer.js';
+import { analyzeBeam, StructuralAnalysisError } from '../src/analyzer.js';
 
 describe('OptiSteel 2.0 — Motor de Selección de Perfiles de Acero (Fase 2)', () => {
   // Modelo de referencia: Viga simplemente apoyada L = 6m con carga uniforme w = 15 kN/m
@@ -632,6 +633,299 @@ describe('OptiSteel 2.0 — Motor de Selección de Perfiles de Acero (Fase 2)', 
 
       expect(STEEL_PROFILES.length).toBe(originalCount);
       expect(STEEL_PROFILES[0]).toEqual(firstProfile);
+    });
+  });
+
+  describe('7. Regresiones P2.1: Interacción de peso propio con H4 y geometría física (BUG-01 y BUG-02)', () => {
+    // Modelo H4 canónico de referencia: L = 12 m (2 vanos de 6 m), carga uniforme continua w = 10 kN/m
+    const canonicalH4Model: BeamModel = {
+      id: 'H4-canonical-selector',
+      length: 12.0,
+      supports: [
+        { id: 'S1', type: 'pin', x: 0.0, label: 'A' },
+        { id: 'S2', type: 'roller', x: 6.0, label: 'B' },
+        { id: 'S3', type: 'roller', x: 12.0, label: 'C' },
+      ],
+      loads: [
+        {
+          id: 'W1',
+          type: 'distributed',
+          xStart: 0.0,
+          xEnd: 12.0,
+          wStart: 10.0,
+          wEnd: 10.0,
+          label: 'Carga uniforme de servicio',
+        },
+      ],
+      material: { name: 'Acero Estructural', E: 200.0 },
+      section: { name: 'Sección tentativa', Iz: 5000.0 },
+    };
+
+    it('BUG-01 (1): Modelo H4 canónico con includeSelfWeight: true selecciona perfil óptimo sin ser rechazado por intensidades diferentes', () => {
+      const result = selectOptimalSteelProfiles(canonicalH4Model, {
+        allowableBendingStressMPa: 150,
+        deflectionLimitDenominator: 360,
+        includeSelfWeight: true,
+      });
+
+      expect(result.optimalProfile).toBeDefined();
+      expect(result.viableCandidates.length).toBeGreaterThan(0);
+
+      const optimal = result.optimalProfile!;
+      // El perfil óptimo debe tener peso propio calculado > 0
+      expect(optimal.selfWeightKNPerM).toBeGreaterThan(0);
+      expect(optimal.isViable).toBe(true);
+      expect(optimal.bending.status).toBe('passed');
+      expect(optimal.deflection.status).toBe('passed');
+
+      // Verificación rigurosa de flexión para un perfil concreto (W310x28):
+      // W310x28: mass = 28.4 kg/m => sw = 28.4 * 9.80665 / 1000 = 0.27850886 kN/m
+      // Carga total combinada w_total = 10 + 0.27850886 = 10.27850886 kN/m
+      // Momento máximo en apoyo central B (L_span = 6 m):
+      // |M_B| = w_total * L_span^2 / 8 = 10.27850886 * 36 / 8 = 46.25329 kN*m
+      const w310x28 = STEEL_PROFILES.find((p) => p.designation === 'W310x28')!;
+      const evalW310x28 = evaluateProfile(w310x28, canonicalH4Model, {
+        allowableBendingStressMPa: 150,
+        deflectionLimitDenominator: 360,
+        includeSelfWeight: true,
+      });
+
+      expect(evalW310x28.selfWeightKNPerM).toBeCloseTo(0.2785, 4);
+      expect(evalW310x28.bending.maxMomentDemandKNm).toBeCloseTo(46.2533, 3);
+      // sigma = (46.2533 * 1000) / 351 = 131.78 MPa <= 150 MPa
+      expect(evalW310x28.bending.actualStressMPa).toBeCloseTo(131.78, 1);
+      expect(evalW310x28.bending.status).toBe('passed');
+      expect(evalW310x28.isViable).toBe(true);
+    });
+
+    it('BUG-01 (2): Modelo H4 sin peso propio (includeSelfWeight: false) conserva exactamente el comportamiento anterior', () => {
+      const resultNoSW = selectOptimalSteelProfiles(canonicalH4Model, {
+        allowableBendingStressMPa: 150,
+        deflectionLimitDenominator: 360,
+        includeSelfWeight: false,
+      });
+
+      expect(resultNoSW.optimalProfile).toBeDefined();
+      const optimal = resultNoSW.optimalProfile!;
+      expect(optimal.selfWeightKNPerM).toBe(0);
+
+      // Verificación con W310x28 sin peso propio: w = 10 kN/m puro
+      // |M_B| = 10 * 36 / 8 = 45.0 kN*m
+      // sigma = (45.0 * 1000) / 351 = 128.21 MPa
+      const w310x28 = STEEL_PROFILES.find((p) => p.designation === 'W310x28')!;
+      const evalW310x28 = evaluateProfile(w310x28, canonicalH4Model, {
+        allowableBendingStressMPa: 150,
+        deflectionLimitDenominator: 360,
+        includeSelfWeight: false,
+      });
+
+      expect(evalW310x28.selfWeightKNPerM).toBe(0);
+      expect(evalW310x28.bending.maxMomentDemandKNm).toBeCloseTo(45.0, 4);
+      expect(evalW310x28.bending.actualStressMPa).toBeCloseTo(128.21, 1);
+      expect(evalW310x28.isViable).toBe(true);
+    });
+
+    it('BUG-02 (3 & 4 & 5): Viga isostática con apoyos desplazados y voladizos físicos aplica peso propio en [0, L] y verifica equilibrio y esfuerzos exactos', () => {
+      // Viga física de L = 10 m, apoyos en x = 2 m (A) y x = 8 m (B)
+      // Voladizo izquierdo: [0, 2] (longitud 2 m)
+      // Vano entre apoyos: [2, 8] (longitud 6 m)
+      // Voladizo derecho: [8, 10] (longitud 2 m)
+      // Carga puntual externa en el centro del vano: P = 40 kN en x = 5 m
+      const overhangBeamModel: BeamModel = {
+        id: 'isostatic-overhang-beam',
+        length: 10.0,
+        supports: [
+          { id: 'A', type: 'pin', x: 2.0, label: 'Apoyo A' },
+          { id: 'B', type: 'roller', x: 8.0, label: 'Apoyo B' },
+        ],
+        loads: [
+          { id: 'P1', type: 'point', x: 5.0, P: 40.0, label: 'Carga central' },
+        ],
+        material: { name: 'Acero Estructural', E: 200.0 },
+        section: { name: 'Sección tentativa', Iz: 5000.0 },
+      };
+
+      const w310x28 = STEEL_PROFILES.find((p) => p.designation === 'W310x28')!;
+      const gravity = 9.80665;
+      const sw = (w310x28.massKgPerM * gravity) / 1000; // 0.27850886 kN/m
+
+      // 1. Verificar dominio de aplicación en buildCandidateLoads:
+      const candidateLoads = buildCandidateLoads(
+        overhangBeamModel.loads,
+        overhangBeamModel.length,
+        sw,
+        w310x28.designation
+      );
+      // Debe contener la carga puntual original y la carga de peso propio sobre [0, 10]
+      expect(candidateLoads.length).toBe(2);
+      const swLoad = candidateLoads.find((l) => l.type === 'distributed') as any;
+      expect(swLoad).toBeDefined();
+      expect(swLoad.xStart).toBe(0);
+      expect(swLoad.xEnd).toBe(10.0);
+      expect(swLoad.wStart).toBeCloseTo(sw, 6);
+      expect(swLoad.wEnd).toBeCloseTo(sw, 6);
+
+      // 2. Verificar análisis estructural directo (reacciones, equilibrio, momentos, flechas):
+      const candidateModel: BeamModel = {
+        ...overhangBeamModel,
+        loads: candidateLoads,
+        section: {
+          name: w310x28.designation,
+          Iz: w310x28.ixMillionMm4 * 100,
+          Wz: w310x28.sxThousandMm3,
+        },
+      };
+
+      const analysis = analyzeBeam(candidateModel);
+
+      // Equilibrio estático global:
+      expect(analysis.equilibrium.isBalanced).toBe(true);
+      expect(analysis.equilibrium.sumFy).toBeCloseTo(0, 5);
+      expect(analysis.equilibrium.sumM).toBeCloseTo(0, 5);
+
+      // Reacciones teóricas exactas:
+      // F_total = 40 + 10 * sw = 42.7850886 kN
+      // Por simetría perfecta: R_A = R_B = 20 + 5 * sw = 21.3925443 kN
+      const expectedReaction = 20.0 + 5.0 * sw;
+      const rA = analysis.reactions.find((r) => r.supportId === 'A')!;
+      const rB = analysis.reactions.find((r) => r.supportId === 'B')!;
+      expect(rA.Ry).toBeCloseTo(expectedReaction, 4);
+      expect(rB.Ry).toBeCloseTo(expectedReaction, 4);
+
+      // Momento en apoyos x = 2 m y x = 8 m (originado exclusivamente por el peso del voladizo exterior de 2 m):
+      // M(2) = - sw * 2^2 / 2 = -2 * sw = -0.557018 kN*m
+      // Si se hubiera recortado erróneamente el peso propio a [2, 8], M(2) sería 0.
+      const mAt2 = analysis.moment.criticalPoints.find(
+        (p) => Math.abs(p.x - 2.0) < 1e-4
+      );
+      expect(mAt2).toBeDefined();
+      expect(mAt2!.value).toBeCloseTo(-2.0 * sw, 4);
+
+      // Momento en centro de vano x = 5 m:
+      // M(5) = R_A * 3 - sw * 5^2 / 2 = (20 + 5*sw)*3 - 12.5*sw = 60 + 2.5*sw = 60.69627 kN*m
+      // Demanda máxima de momento = 60.6963 kN*m
+      const expectedMaxMoment = 60.0 + 2.5 * sw;
+      const actualMaxMoment = Math.max(
+        Math.abs(analysis.moment.maxPositive.value),
+        Math.abs(analysis.moment.maxNegative.value)
+      );
+      expect(actualMaxMoment).toBeCloseTo(expectedMaxMoment, 4);
+
+      // 3. Verificación de evaluación de perfil a través del selector:
+      const evalProfile = evaluateProfile(w310x28, overhangBeamModel, {
+        allowableBendingStressMPa: 180,
+        deflectionLimitDenominator: 360,
+        includeSelfWeight: true,
+      });
+
+      expect(evalProfile.bending.maxMomentDemandKNm).toBeCloseTo(expectedMaxMoment, 3);
+      // sigma = 60.6963 * 1000 / 351 = 172.92 MPa <= 180 MPa
+      expect(evalProfile.bending.actualStressMPa).toBeCloseTo(172.92, 1);
+      expect(evalProfile.bending.status).toBe('passed');
+      expect(evalProfile.deflection.status).toBe('passed');
+      expect(evalProfile.isViable).toBe(true);
+    });
+
+    it('BUG-02 (6): Rechazo explícito controlado cuando el modelo con voladizos excede el alcance del solver hiperestático', () => {
+      // 6a. Caso H4 con apoyos desplazados y voladizos físicos exteriores:
+      // Viga L = 16 m, apoyos en x = 2, 8, 14 m (voladizos en [0, 2] y [14, 16])
+      // Al activar includeSelfWeight, el peso propio se aplica sobre [0, 16] m.
+      // Como H4 no soporta voladizos exteriores con carga, debe ser explícitamente rechazado.
+      const h4OverhangModel: BeamModel = {
+        id: 'H4-with-exterior-overhangs',
+        length: 16.0,
+        supports: [
+          { id: 'S1', type: 'pin', x: 2.0 },
+          { id: 'S2', type: 'roller', x: 8.0 },
+          { id: 'S3', type: 'roller', x: 14.0 },
+        ],
+        loads: [
+          { id: 'W1', type: 'distributed', xStart: 2.0, xEnd: 14.0, wStart: 10.0, wEnd: 10.0 },
+        ],
+        material: { name: 'Acero Estructural', E: 200.0 },
+        section: { name: 'Sección tentativa', Iz: 5000.0 },
+      };
+
+      expect(() =>
+        selectOptimalSteelProfiles(h4OverhangModel, {
+          allowableBendingStressMPa: 150,
+          deflectionLimitDenominator: 360,
+          includeSelfWeight: true,
+        })
+      ).toThrow(StructuralAnalysisError);
+
+      try {
+        selectOptimalSteelProfiles(h4OverhangModel, {
+          allowableBendingStressMPa: 150,
+          deflectionLimitDenominator: 360,
+          includeSelfWeight: true,
+        });
+      } catch (err) {
+        expect((err as StructuralAnalysisError).errors.some((e) => e.includes('voladizo exterior'))).toBe(true);
+      }
+
+      // 6b. Caso H1 con apoyos desplazados y voladizos físicos exteriores:
+      // Viga L = 6 m, empotramiento en x = 1 m, apoyo simple en x = 5 m (voladizos en [0, 1] y [5, 6])
+      const h1OverhangModel: BeamModel = {
+        id: 'H1-with-exterior-overhangs',
+        length: 6.0,
+        supports: [
+          { id: 'S1', type: 'fixed', x: 1.0 },
+          { id: 'S2', type: 'roller', x: 5.0 },
+        ],
+        loads: [{ id: 'P1', type: 'point', x: 3.0, P: 20.0 }],
+        material: { name: 'Acero Estructural', E: 200.0 },
+        section: { name: 'Sección tentativa', Iz: 5000.0 },
+      };
+
+      expect(() =>
+        selectOptimalSteelProfiles(h1OverhangModel, {
+          allowableBendingStressMPa: 150,
+          deflectionLimitDenominator: 360,
+          includeSelfWeight: true,
+        })
+      ).toThrow(StructuralAnalysisError);
+    });
+
+    it('7. Desempate determinista por designación alfabética ante perfiles de masa idéntica', () => {
+      // Creamos dos perfiles artificiales con idéntica masa (50.0 kg/m) pero designaciones distintas
+      const profileZ: SteelProfile = {
+        designation: 'W_ZETA_50',
+        type: 'W',
+        massKgPerM: 50.0,
+        depthMm: 300,
+        webThicknessMm: 10,
+        ixMillionMm4: 150,
+        sxThousandMm3: 1000,
+      };
+
+      const profileA: SteelProfile = {
+        designation: 'W_ALPHA_50',
+        type: 'W',
+        massKgPerM: 50.0,
+        depthMm: 300,
+        webThicknessMm: 10,
+        ixMillionMm4: 150,
+        sxThousandMm3: 1000,
+      };
+
+      // Ambos perfiles pasan holgadamente los criterios
+      const result = selectOptimalSteelProfiles(
+        simpleBeamModel,
+        {
+          allowableBendingStressMPa: 200,
+          deflectionLimitDenominator: 360,
+          includeSelfWeight: false,
+        },
+        [profileZ, profileA] // Pasados deliberadamente en orden inverso
+      );
+
+      expect(result.viableCandidates.length).toBe(2);
+      expect(result.optimalProfile).toBeDefined();
+      // 'W_ALPHA_50' debe anteceder a 'W_ZETA_50' por orden alfabético
+      expect(result.optimalProfile!.profile.designation).toBe('W_ALPHA_50');
+      expect(result.viableCandidates[0]!.profile.designation).toBe('W_ALPHA_50');
+      expect(result.viableCandidates[1]!.profile.designation).toBe('W_ZETA_50');
     });
   });
 });

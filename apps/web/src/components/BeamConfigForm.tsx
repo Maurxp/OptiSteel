@@ -26,6 +26,51 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
     onChange({ ...form, Iz: val });
   };
 
+  const handleSectionTypeChange = (type: 'rectangular' | 'general') => {
+    if (type === 'rectangular') {
+      const b = form.widthMm && form.widthMm > 0 ? form.widthMm : 100;
+      const h = form.heightMm && form.heightMm > 0 ? form.heightMm : 200;
+      const iz = (b * h ** 3) / (12 * 10000);
+      const wz = (b * h ** 2) / 6000;
+      const area = (b * h) / 100;
+      onChange({
+        ...form,
+        sectionType: 'rectangular',
+        widthMm: b,
+        heightMm: h,
+        Iz: Number(iz.toFixed(1)),
+        Wz: Number(wz.toFixed(1)),
+        areaCm2: Number(area.toFixed(1)),
+      });
+    } else {
+      onChange({
+        ...form,
+        sectionType: 'general',
+      });
+    }
+  };
+
+  const handleRectDimensionChange = (bVal?: number, hVal?: number) => {
+    const b = bVal !== undefined ? bVal : form.widthMm ?? 100;
+    const h = hVal !== undefined ? hVal : form.heightMm ?? 200;
+    if (b > 0 && h > 0) {
+      const iz = (b * h ** 3) / (12 * 10000);
+      const wz = (b * h ** 2) / 6000;
+      const area = (b * h) / 100;
+      onChange({
+        ...form,
+        sectionType: 'rectangular',
+        widthMm: b,
+        heightMm: h,
+        Iz: Number(iz.toFixed(1)),
+        Wz: Number(wz.toFixed(1)),
+        areaCm2: Number(area.toFixed(1)),
+      });
+    } else {
+      onChange({ ...form, widthMm: b, heightMm: h });
+    }
+  };
+
   // Support handlers
   const handleAddSupport = () => {
     const nextId = `S${form.supports.length + 1}`;
@@ -257,6 +302,177 @@ export const BeamConfigForm: React.FC<BeamConfigFormProps> = ({ form, onChange, 
               onChange={(e) => handleIzChange(parseFloat(e.target.value) || 0)}
               title="Momento de inercia de área respecto al eje de flexión (eje Z del solver 2D). Para perfiles de catálogo orientados en posición vertical estándar, corresponde a la inercia del eje fuerte Ix."
             />
+          </div>
+        </div>
+
+        {/* Extended Section Geometry for Mechanics of Materials */}
+        <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              Geometría de Sección Transversal (Esfuerzos σ y τ)
+            </span>
+            <div style={{ display: 'flex', gap: '0.35rem' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${form.sectionType === 'rectangular' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                onClick={() => handleSectionTypeChange('rectangular')}
+              >
+                Rectangular (b×h)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${form.sectionType !== 'rectangular' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                onClick={() => handleSectionTypeChange('general')}
+              >
+                General / Wz
+              </button>
+            </div>
+          </div>
+
+          {form.sectionType === 'rectangular' ? (
+            <div className="form-row form-row-3">
+              <div className="form-group">
+                <label className="form-label" htmlFor="rect-b">
+                  <span>Base (b)</span>
+                  <span className="unit">mm</span>
+                </label>
+                <input
+                  id="rect-b"
+                  type="number"
+                  min="1"
+                  step="5"
+                  className="form-input"
+                  value={form.widthMm ?? 100}
+                  onChange={(e) => handleRectDimensionChange(parseFloat(e.target.value) || 0, undefined)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="rect-h">
+                  <span>Altura (h)</span>
+                  <span className="unit">mm</span>
+                </label>
+                <input
+                  id="rect-h"
+                  type="number"
+                  min="1"
+                  step="5"
+                  className="form-input"
+                  value={form.heightMm ?? 200}
+                  onChange={(e) => handleRectDimensionChange(undefined, parseFloat(e.target.value) || 0)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="rect-wz">
+                  <span>Módulo Wz (calc)</span>
+                  <span className="unit">cm³</span>
+                </label>
+                <input
+                  id="rect-wz"
+                  type="number"
+                  className="form-input"
+                  disabled
+                  value={form.Wz ? form.Wz.toFixed(1) : ''}
+                  style={{ opacity: 0.85, backgroundColor: 'rgba(255,255,255,0.03)' }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="form-row form-row-3">
+              <div className="form-group">
+                <label className="form-label" htmlFor="section-wz">
+                  <span>Módulo Wz</span>
+                  <span className="unit">cm³</span>
+                </label>
+                <input
+                  id="section-wz"
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="form-input"
+                  value={form.Wz ?? ''}
+                  placeholder="Ej: 434"
+                  onChange={(e) => onChange({ ...form, Wz: parseFloat(e.target.value) || undefined })}
+                  title="Módulo resistente de flexión Wz = Iz / c en cm³. Permite calcular el esfuerzo normal σ_max."
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="section-area">
+                  <span>Área (A)</span>
+                  <span className="unit">cm²</span>
+                </label>
+                <input
+                  id="section-area"
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="form-input"
+                  value={form.areaCm2 ?? ''}
+                  placeholder="Ej: 57"
+                  onChange={(e) => onChange({ ...form, areaCm2: parseFloat(e.target.value) || undefined })}
+                  title="Área transversal en cm². Permite evaluar el esfuerzo cortante medio τ = V / A."
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="section-h">
+                  <span>Altura total h</span>
+                  <span className="unit">mm</span>
+                </label>
+                <input
+                  id="section-h"
+                  type="number"
+                  min="0"
+                  step="5"
+                  className="form-input"
+                  value={form.heightMm ?? ''}
+                  placeholder="Ej: 267"
+                  onChange={(e) => onChange({ ...form, heightMm: parseFloat(e.target.value) || undefined })}
+                  title="Altura total de la sección en mm (c = h/2 si simétrica)."
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="form-row form-row-3" style={{ marginTop: '0.4rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="bending-allowable">
+                <span>σ admisible</span>
+                <span className="unit">MPa</span>
+              </label>
+              <input
+                id="bending-allowable"
+                type="number"
+                min="1"
+                step="5"
+                className="form-input"
+                value={form.allowableBendingStressMPa ?? ''}
+                placeholder="Ej: 150 (opcional)"
+                onChange={(e) =>
+                  onChange({ ...form, allowableBendingStressMPa: parseFloat(e.target.value) || undefined })
+                }
+                title="Esfuerzo admisible a flexión en MPa (ej. 150 MPa para A36 o 250 MPa)."
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="deflection-limit">
+                <span>Límite flecha</span>
+                <span className="unit">L/n</span>
+              </label>
+              <input
+                id="deflection-limit"
+                type="number"
+                min="50"
+                step="60"
+                className="form-input"
+                value={form.deflectionLimitDenominator ?? 360}
+                placeholder="360"
+                onChange={(e) =>
+                  onChange({ ...form, deflectionLimitDenominator: parseFloat(e.target.value) || 360 })
+                }
+                title="Denominador del límite de flecha elástico (ej. 360 para L/360 o 240 para L/240)."
+              />
+            </div>
           </div>
         </div>
       </div>
