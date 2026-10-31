@@ -111,3 +111,4 @@ En vigas continuas o con voladizos, la longitud total del elemento $L_{\text{tot
 > 1. **Origen Analítico:** Una viga en voladizo de longitud $a$ posee giro nulo en el empotramiento ($\theta = 0$). Este comportamiento elástico coincide con la mitad de una viga simplemente apoyada continua de luz doble $L_{\text{equiv}} = 2a$, donde el giro en el centro es nulo por simetría.
 > 2. **Adopción en Normas:** Diversos códigos como el **IBC (Tabla 1604.3, Nota f)** estipulan que para voladizos la luz $l$ se toma como dos veces la longitud del voladizo.
 > 3. **Decisión de Producto de OptiSteel:** La fórmula $\delta_{\text{adm}} = \frac{2a}{n}$ se adopta como el modelo elástico canónico predeterminado en el software. Dado que diferentes especificaciones de proyectos pueden requerir límites más rigurosos, en futuras revisiones (Fase P3+) se considerará habilitar la configuración del divisor independiente para voladizos en la interfaz.
+

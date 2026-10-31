@@ -106,3 +106,4 @@ El validador de OptiSteel (`validator.ts`) protege la integridad de los cálculo
    - Vigas con combinaciones de 3 o más empotramientos rígidos.
    - Vigas biempotradas con cargas triangulares o cargas puntuales múltiples asimétricas no codificadas.
    - En estos casos, la aplicación emite un mensaje claro indicando que la tipología excede el alcance del motor analítico cerrado de OptiSteel 2.0.
+

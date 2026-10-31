@@ -42,3 +42,4 @@ OptiSteel 2.0 admite los límites elásticos estándar recomendados por los cód
 | **$L/360$** | **AISC 360** Comentario L / **NSR-10** Tabla C.9.5(b) | Entrepisos residenciales y comerciales bajo carga viva ($L$) con acabados o cielos de yeso estándar. *(Valor predeterminado en OptiSteel)*. |
 | **$L/480$** | **ACI 318** Tabla 24.2.2 / **NSR-10** Tabla C.9.5(b) | Elementos que soportan o están ligados a muros divisorios de mampostería no estructural u acabados susceptibles a fisuración. |
 | **$L/600$** | **AISC** Design Guide 3 (Sección 4.2) | Vigas de fachada o perimetrales que soportan sistemas vidriados o muros de albañilería a la vista. |
+

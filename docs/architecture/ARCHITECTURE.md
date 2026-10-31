@@ -131,3 +131,4 @@ El monorepo cuenta con una suite integral de **223 pruebas automatizadas** ejecu
   * `hyperstatic-web.test.tsx`: Validación de reportes didácticos y casos H1–H4 en la interfaz.
   * `steel-profile-selector.test.tsx`: Interacción y recálculo reactivo del selector.
   * `responsive.test.tsx`: Adaptabilidad responsive para escritorio, tablet y móvil.
+

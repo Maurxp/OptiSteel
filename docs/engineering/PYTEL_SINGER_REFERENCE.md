@@ -45,3 +45,4 @@ En el paquete `@optisteel/core`, el archivo de pruebas [`packages/core/tests/pyt
 2. Se ejecuta el análisis completo mediante `analyzeBeam(model)`.
 3. Se evalúa la solución algebraica teórica del catálogo mediante `evaluateTheoretical(params, EI)`.
 4. Se verifica que las reacciones, el momento flector máximo y la deflexión máxima coincidan con una tolerancia menor al $0.01\%$.
+

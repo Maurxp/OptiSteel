@@ -63,3 +63,4 @@ OptiSteel 2.0 adopta una convención física unificada, alineada con la formulac
   $$\theta(x) = \frac{dv(x)}{dx}$$
 * **Flecha descendente:** $v(x) < 0$. En los paneles de resultados de usuario, la flecha hacia abajo se reporta con su magnitud absoluta $|v|$ rotulada como `↓ Descenso`.
 * **Levantamiento:** $v(x) > 0$. Se reporta como `↑ Levantamiento`.
+

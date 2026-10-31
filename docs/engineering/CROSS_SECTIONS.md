@@ -80,3 +80,4 @@ graph TD
 > * Secciones rectangulares y circulares sólidas.
 >
 > **Para secciones asimétricas o monosimétricas** (ej. perfiles T, ángulos L, perfiles C en flexión sobre eje débil o secciones cajón asimétricas), el centro de gravedad no coincide con la semialtura. En estos casos, el usuario **debe ingresar directamente el módulo elástico $W_z$ crítico o la distancia $c$ correspondiente a la fibra más solicitada**, tal como advierte la aplicación en sus notas didácticas.
+

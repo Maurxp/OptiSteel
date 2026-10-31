@@ -77,3 +77,4 @@ En estricta observancia de las reglas de estabilidad del proyecto, **no se aplic
      - `Referrer-Policy: strict-origin-when-cross-origin`.
      - `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` (Fuerza HTTPS estricto).
      - `Content-Security-Policy`: Restringe la carga de scripts e imágenes exclusivamente al propio dominio (`'self'`).
+

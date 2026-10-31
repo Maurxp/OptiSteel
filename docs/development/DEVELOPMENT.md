@@ -119,3 +119,4 @@ OptiSteel 2.0 utiliza el estándar **Conventional Commits** con descripciones en
 * `chore(alcance): tareas de mantenimiento, dependencias o CI`
 
 **Regla de Seguridad:** Ningún commit debe incluir credenciales, secretos, archivos temporales ni modificaciones en los archivos protegidos (`perfiles_estructurales.csv` y `Resist Mat. SINGER (1).pdf`).
+

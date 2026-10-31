@@ -78,3 +78,4 @@ test -f apps/web/dist/index.html && echo "Artefactos listos para producción"
 # 3. Previsualizar localmente el build de producción
 pnpm --filter @optisteel/web preview
 ```
+
