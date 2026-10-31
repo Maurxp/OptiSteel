@@ -1,140 +1,192 @@
-# OptiSteel Pro 🏗️
+# OptiSteel 2.0 🏗️
 
-> **Selector y Optimizador Automatizado de Vigas de Acero Estructural**  
-> Basado en la formulación de Resistencia de Materiales (*Pytel & Singer*) y normativas de diseño sismorresistente y servicio (**NSR-10**, **AISC 360 / DG-3**, **IBC 2024**, **ACI 318**).
+> **Plataforma Web y Motor de Cálculo para Análisis Estructural, Mecánica de Materiales y Dimensionamiento de Perfiles de Acero**
+> Desarrollado en TypeScript sobre arquitectura Monorepo moderna, con formulación elástica rigurosa basada en *Resistencia de Materiales* (Pytel & Singer, 4.ª Ed.) y verificaciones preliminares de servicio y resistencia según normativas internacionales (**AISC 360**, **NSR-10 Título F**, **IBC**).
 
-[![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Framework](https://img.shields.io/badge/GUI-Tkinter%20%7C%20Streamlit-emerald.svg)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Standard](https://img.shields.io/badge/Normativa-NSR--10%20%7C%20AISC%20%7C%20IBC-red.svg)](#normativas-y-criterios-de-servicio)
-
----
-
-## 📌 Descripción
-
-**OptiSteel Pro** es una herramienta de ingeniería civil diseñada para resolver de manera óptima el dimensionamiento elástico de vigas simplemente apoyadas sometidas a flexión pura, cortante y restricciones normativas de flecha (deflexión).
-
-El sistema desacopla el catálogo de perfiles mediante un archivo externo `.csv` y analiza iterativamente perfiles comerciales tipo **W (Ala Ancha)**, **S (Vigas I estándar)** y **C (Canales)**, determinando la solución más económica (menor masa por metro lineal) considerando de forma automática el incremento de solicitaciones provocado por el **peso propio** del miembro estructural.
+[![Node.js Version](https://img.shields.io/badge/Node.js-22%20LTS%20%7C%2024-brightgreen.svg)](https://nodejs.org/)
+[![pnpm Workspace](https://img.shields.io/badge/pnpm-Workspace-orange.svg)](https://pnpm.io/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19.0-61dafb.svg)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-6.2-purple.svg)](https://vitejs.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-223%20passed-success.svg)](https://vitest.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 ---
 
-## 🖥️ Modos de Uso y Acceso
+## 📌 Descripción General
 
-OptiSteel Pro puede utilizarse de tres formas distintas según las necesidades del usuario:
+**OptiSteel 2.0** es una solución integral de ingeniería civil y estructural diseñada para el análisis analítico de vigas continuas, la resolución didáctica de sistemas hiperestáticos canónicos, el cálculo riguroso de esfuerzos elásticos seccionales y la selección preliminar óptima de perfiles estructurales de acero laminado en caliente.
 
+El proyecto está concebido con un estándar industrial desacoplado:
+1. **`@optisteel/core`**: Motor matemático y analítico independiente en TypeScript puro, sin dependencias de DOM ni navegador, ejecutable en Node.js, navegadores o entornos serverless.
+2. **`@optisteel/web`**: Aplicación web interactiva en React 19 y Vite con esquemas SVG paramétricos, trazado reactivo de diagramas tensionales, biblioteca canónica y reporte didáctico de compatibilidad elástica.
 
-### 1. Web App en Streamlit (Recomendado — Sin instalación)
-La alternativa más rápida para consultar desde cualquier navegador, computador, tablet o smartphone (iOS / Android) sin configurar entornos de programación:
+---
 
-* **Enlace de acceso directo:** [optisteel.streamlit.app](https://optisteel.streamlit.app)
-* **Uso en dispositivos móviles (PWA):**
-  1. Abre el enlace en Safari (iOS) o Chrome (Android).
-  2. Toca el botón **Compartir** y selecciona **"Agregar al inicio"**.
-  3. La herramienta se ejecutará a pantalla completa como una aplicación nativa sin barras de navegación.
+## ✨ Características Principales
 
+### 1. Análisis Estructural y Equilibrio Estático
+* **Sistemas Isostáticos Generales:** Vigas simplemente apoyadas, vigas en voladizo (cantilever) y vigas con voladizos extremos.
+* **Casos Hiperestáticos Canónicos H1–H4:**
+  * **H1:** Viga empotrada-apoyada con carga puntual excéntrica o central.
+  * **H2:** Viga empotrada-apoyada con carga uniformemente distribuida.
+  * **H3:** Viga biempotrada con carga uniformemente distribuida completa.
+  * **H4:** Viga continua de dos vanos con apoyo intermedio y carga distribuida uniforme.
+* **Resolución Analítica Cerrada:** Cálculo exacto de reacciones mediante equilibrio estático y ecuaciones de compatibilidad geométrica elástica.
+* **Diagramas Continuos por Tramos:** Funciones continuas a trozos para esfuerzo cortante $V(x)$ y momento flector $M(x)$.
+* **Puntos Críticos y Notables:** Detección de singularidades, cortes por cero en $V(x)$, extremos locales y globales, y puntos de inflexión ($M=0$).
 
-### 2. Ejecutable Standalone para Windows (`.exe` en Releases)
-Para usar la interfaz gráfica nativa en Windows sin tener Python instalado:
+### 2. Módulo de Resistencia de Materiales
+* **Esfuerzo Normal por Flexión (Navier):**
+  $$\sigma = \frac{|M| \cdot c}{I_z} = \frac{|M|}{W_z}$$
+  Evaluación simultánea de los extremos duales de flexión positiva ($M^+$, sagante con tracción inferior y compresión superior) y negativa ($M^-$, hogante con tracción superior y compresión inferior).
+* **Esfuerzo Cortante Seccional:**
+  * Cortante medio global: $\tau_{\text{prom}} = \frac{|V|}{A}$.
+  * Cortante medio en el alma (AISC / NSR-10): $\tau_{\text{alma}} = \frac{|V|}{d \cdot t_w}$.
+  * Cortante máximo elástico de **Jourawski / Colignon** en el eje neutro para perfiles I/W con dimensiones completas:
+    $$\tau_{\text{máx}} = \frac{|V| \cdot Q_{\text{máx}}}{I_z \cdot t_w}$$
+  * Distribución parabólica en rectángulos macizos ($\tau_{\text{máx}} = 1.5 \cdot \tau_{\text{prom}}$) y círculos ($\tau_{\text{máx}} = \frac{4}{3} \cdot \tau_{\text{prom}}$).
+* **Ecuación Analítica de la Curva Elástica (Euler-Bernoulli):**
+  $$EI \frac{d^2 v}{dx^2} = -M(x)$$
+  Despliegue de constantes de integración ($C_1, C_2$), condiciones de frontera y ecuaciones polinómicas exactas $v(x)$ y $\theta(x)$ por cada tramo.
+* **Evaluación del Estado Límite de Servicio (ELS) por Vanos:**
+  Partición topológica automática de vanos entre apoyos y voladizos, evaluando cada vano según su propia longitud de referencia ($L_{\text{span}}/n$) y los voladizos según el criterio analítico de viga simétrica equivalente ($2a/n$), con denominador $n$ configurable (ej. 360, 240, 180).
 
-1. Ve a la sección lateral derecha del repositorio: **[Releases](../../releases)**.
-2. Descarga la versión más reciente del archivo **`OptiSteel.exe`**.
-3. Haz doble clic sobre el archivo descargado para iniciar el programa.
-> **Nota:** El ejecutable es completamente portable e incluye el catálogo de perfiles y recursos empaquetados en su interior; no requiere instalación previa ni dependencias externas.
+### 3. Biblioteca Didáctica Pytel & Singer
+* **12 Casos Canónicos:** Basada en la Tabla 6-2 de la 4.ª edición de *Resistencia de Materiales* de Andrew Pytel y Ferdinand L. Singer.
+* **Transferencia Inmediata:** Carga paramétrica directa de cualquier caso de libro de texto al motor de análisis.
+* **Transparencia Didáctica:** Clarificación de que los problemas originales del libro son de formulación simbólica en función de $EI$; el perfil preasignado $W10\times30$ es una propuesta ilustrativa de prueba editable por el usuario.
 
+### 4. Selector Óptimo de Perfiles de Acero
+* **Base de Datos Estructural:** Integración del catálogo estándar con perfiles comerciales **W (Wide Flange)**, **S (American Standard)** y **C (Channels)**.
+* **Iteración Automática de Peso Propio:** Incorpora el incremento gravitacional del peso del perfil ($w_{pp} = m \cdot g$) recalculando esfuerzos y deflexiones en cada candidato.
+* **Filtros por Familia y Eficiencia:** Clasificación ordenada por masa lineal ($\text{kg/m}$) para garantizar la solución de menor costo de material.
 
-### 3. Ejecución y Compilación en Local (Código Fuente)
+---
 
-Para desarrolladores o estudiantes que deseen modificar el motor de cálculo, ampliar el catálogo o ejecutar el proyecto desde la terminal:
+## 🏛️ Arquitectura del Monorepo
 
-#### Procedimiento:
+```text
+OptiSteelProject/
+├── packages/
+│   └── core/                      # Motor analítico TypeScript (@optisteel/core)
+│       ├── src/
+│       │   ├── hyperstatic/       # Solvers H1, H2, H3, H4 y reporte didáctico
+│       │   ├── mechanics/         # Postprocesador de Resistencia de Materiales
+│       │   ├── pytel-singer/      # Biblioteca canónica y evaluadores teóricos
+│       │   ├── steel-design/      # Selector de perfiles y modelos de sección
+│       │   ├── analyzer.ts        # Orquestador unificado analyzeBeam()
+│       │   ├── elasticity.ts      # Solver numérico de rigidez y elástica
+│       │   ├── internal-forces.ts # Generación continua de V(x) y M(x)
+│       │   ├── reactions.ts       # Equilibrio y cálculo de reacciones
+│       │   └── validator.ts       # Validador de modelos y estabilidad
+│       └── tests/                 # Batería de 174 pruebas unitarias de core
+│
+├── apps/
+│   └── web/                       # Aplicación React 19 + Vite (@optisteel/web)
+│       ├── src/
+│       │   ├── components/        # UI: Schematics, Results, Panel Mecánica, Forms
+│       │   ├── adapters/          # Mapeadores de estado UI a BeamModel
+│       │   └── types/             # Tipado extendido de interfaz
+│       └── tests/                 # 49 pruebas de integración UI y responsive
+│
+├── docs/                          # Documentación técnica y de ingeniería
+│   ├── architecture/              # Guías de diseño y diagramas Mermaid
+│   ├── development/               # Guía para desarrolladores y estándares
+│   ├── deployment/                # Guía de despliegue en Cloudflare Pages
+│   └── engineering/               # Fundamento matemático, normativo y convenciones
+│
+├── perfiles_estructurales.csv     # Catálogo de perfiles comerciales (protegido)
+├── tsconfig.base.json             # Configuración base de TypeScript 5.8
+├── pnpm-workspace.yaml            # Definición del workspace pnpm
+└── package.json                   # Scripts y configuración raíz
+```
+
+---
+
+## 🚀 Requisitos de Entorno e Instalación
+
+### Requisitos Previos
+* **Node.js:** Versión LTS recomendada `^22.14.0` (compatible con `Node.js >=20.18.0 <=24.x`).
+* **pnpm:** Gestor de paquetes recomendado `pnpm >=9.0.0` (compatible con v9, v10 y v12).
+
+### Instalación Rápida
 ```bash
 # 1. Clonar el repositorio
 git clone https://github.com/Maurxp/OptiSteel.git
 cd OptiSteel
 
-# 2. Crear y activar entorno virtual
-python -m venv venv
-venv\Scripts\activate      # En Windows
-# source venv/bin/activate # En Linux / macOS
-
-# 3. Instalar librerías requeridas
-pip install -r requirements.txt
-
-# 4. Iniciar versión Web interactiva (Streamlit)
-streamlit run app.py
-
-# 5. O iniciar versión de Escritorio nativa (Tkinter)
-python app_desktop.py
-
-# 6. (Opcional) Compilar ejecutable .exe para Windows
-pip install pyinstaller
-pyinstaller --noconsole --onefile --icon="icono.ico" --add-data "perfiles_estructurales.csv;." --add-data "icono.ico;." --add-data "icono.png;." app_desktop.py
+# 2. Instalar dependencias con lockfile inmutable
+pnpm install --frozen-lockfile
 ```
 
 ---
 
-## ⚙️ Características Técnicas
+## 💻 Comandos de Ejecución y Desarrollo
 
-* **Filtrado Multi-Perfil:** Evalúa familias individuales (`W`, `S`, `C`) o ejecuta un barrido simultáneo (`TODOS`) para encontrar la sección transversal más eficiente del mercado.
-* **Cálculo Riguroso de Peso Propio:** Integra el peso propio ($w_{pp}$) al momento central ($M_{pp} = \frac{w_{pp}L^2}{8}$) y al cortante de apoyo ($V_{pp} = \frac{w_{pp}L}{2}$), recalculando el módulo demandado ($S_{pp}$).
-* **Triple Verificación Simultánea:**
-  * **Resistencia a Flexión:** $\sigma_{\text{real}} \le \sigma_{\text{adm}}$ (Fórmula de Navier-Bernoulli).
-  * **Resistencia a Cortante en Alma:** $\tau_{\text{real}} = \frac{V_{\text{total}}}{d \cdot t_w} \le \tau_{\text{adm}}$ (AISC ASD / NSR-10 Título F).
-  * **Rigidez y Flecha Elástica:** $\Delta_{\text{total}} \le \Delta_{\text{adm}} = \frac{L}{X}$.
-* **Arquitectura Dual:**
-  * Versión Escritorio con GUI nativa moderna en **Tkinter** empaquetable a ejecutable `.exe` con `PyInstaller`.
-  * Versión Web interactiva y responsiva con **Streamlit** (compatible con navegadores móviles, escritorio y PWA en iOS/Android).
-* **Catálogo Abierto (CSV-Driven):** Carga dinámica de secciones estructurales basada en el Apéndice B (Tabla B-2) del texto guía *Resistencia de Materiales* de Andrew Pytel y Ferdinand L. Singer.
+El monorepo centraliza los comandos en la raíz mediante scripts de pnpm:
 
----
-
-## 📐 Fundamento Teórico y Formulación Matemática
-
-El motor de cálculo ejecuta las siguientes etapas para cada perfil viable:
-
-1. **Carga gravitacional por peso propio:**
-   $$w_{pp} = \frac{m \cdot g}{1000} \quad [\text{kN/m}]$$
-   con $g = 9.81\text{ m/s}^2$ y masa lineal $m$ en $\text{kg/m}$
-
-2. **Solicitaciones acumuladas críticas:**
-   $$M_{\text{total}} = M_{\text{ext}} + \frac{w_{pp} \cdot L^2}{8} \quad [\text{kN}\cdot\text{m}]$$
-   $$V_{\text{total}} = V_{\text{ext}} + \frac{w_{pp} \cdot L}{2} \quad [\text{kN}]$$
-
-3. **Módulo elástico demandado por peso propio:**
-   $$S_{pp} = \frac{M_{pp}}{\sigma_{\text{adm}}} = \frac{M_{pp} \times 10^6}{\sigma_{\text{adm}} \times 1000} \quad [10^3\text{ mm}^3]$$
-
-4. **Esfuerzo real a flexión:**
-   $$\sigma_{\text{real}} = \frac{M_{\text{total}} \times 10^6}{S_x \times 1000} \quad [\text{MPa}]$$
-
-5. **Esfuerzo cortante medio en el alma:**
-   $$\tau_{\text{real}} = \frac{V_{\text{total}} \times 1000}{d \cdot t_w} \quad [\text{MPa}] \quad \le \quad \tau_{\text{adm}} = 0.60 \cdot \sigma_{\text{adm}}$$
-
-6. **Deflexión total acumulada ($E = 200\,000\text{ MPa}$):**
-   $$\Delta_{\text{total}} = \Delta_{pp} + \Delta_{\text{ext}} = \frac{5 \cdot w_{pp} \cdot (L \times 1000)^4}{384 \cdot E \cdot (I_x \times 10^6)} + \frac{M_{\text{ext}} \times 10^6 \cdot (L \times 1000)^2}{10 \cdot E \cdot (I_x \times 10^6)} \quad [\text{mm}]$$
+| Comando | Descripción |
+| :--- | :--- |
+| `pnpm dev` | Inicia el servidor de desarrollo interactivo de `@optisteel/web` en [http://localhost:5173](http://localhost:5173) |
+| `pnpm test` | Ejecuta las **223 pruebas** de la suite completa (Core y Web) con Vitest |
+| `pnpm test:core` | Ejecuta exclusivamente las 174 pruebas unitarias de `@optisteel/core` |
+| `pnpm test:web` | Ejecuta exclusivamente las 49 pruebas de integración de `@optisteel/web` |
+| `pnpm typecheck` | Comprobación de tipos en todo el monorepo (`tsc --noEmit`) sin generar artefactos |
+| `pnpm build` | Compila `@optisteel/core` (generando `.d.ts` y `.js`) y empaqueta `@optisteel/web` con Vite |
+| `pnpm build:core` | Compila exclusivamente el paquete core |
+| `pnpm build:web` | Compila y empaqueta exclusivamente la aplicación web para producción (`apps/web/dist`) |
 
 ---
 
-## 🏛️ Normativas y Criterios de Servicio
+## 📐 Convenciones Físicas y de Signos
 
-| Límite | Origen Normativo | Campo de Aplicación Estructural |
-| :--- | :--- | :--- |
-| **$L/180$** | **IBC** Tabla 1604.3 / **NSR-10** Tabla C.9.5(b) | Cubiertas industriales ligeras con teja metálica sin cielo raso. |
-| **$L/240$** | **IBC** Tabla 1604.3 / **AISC** Design Guide 3 | Pisos bajo carga total ($D + L$) o cubiertas con acabados no frágiles. |
-| **$L/360$** | **IBC** Tabla 1604.3 / **NSR-10** Tabla C.9.5(b) | Entrepisos residenciales/comerciales bajo carga viva con cielo raso de yeso. |
-| **$L/480$** | **ACI 318** Tabla 24.2.2 / **NSR-10** Tabla C.9.5(b) | Entrepisos que soportan muros divisorios o acabados susceptibles a fisuración. |
-| **$L/600$** | **AISC** Design Guide 3 (Sección 4.2) | Vigas perimetrales que cargan muros de mampostería o fachadas vidriadas. |
+OptiSteel 2.0 opera con unidades coherentes del **Sistema Internacional (SI)** adaptadas a la práctica de ingeniería estructural:
+
+* **Longitud y cotas:** Metros ($\text{m}$).
+* **Cargas puntuales ($P$):** Kilonewtons ($\text{kN}$). Positivas hacia abajo ($\downarrow$).
+* **Cargas distribuidas ($w$):** Kilonewtons por metro ($\text{kN/m}$). Positivas hacia abajo ($\downarrow$).
+* **Momentos concentrados externos ($M_0$):** Kilonewton-metro ($\text{kN}\cdot\text{m}$). Positivos antihorarios ($\circlearrowleft$).
+* **Reacciones de apoyo ($R_y, M_r$):** Vertical positiva hacia arriba ($\uparrow$), momento de empotramiento positivo antihorario ($\circlearrowleft$).
+* **Relaciones diferenciales internas:**
+  $$\frac{dV}{dx} = -w(x), \qquad \frac{dM}{dx} = V(x)$$
+* **Ecuación de curvatura elástica:**
+  $$EI \frac{d^2 v}{dx^2} = -M(x)$$
+  donde $v(x)$ es positivo hacia arriba ($\uparrow$) y el descenso físico (flecha) se reporta como $|v|$ hacia abajo ($\downarrow$).
+* **Módulo de elasticidad ($E$):** Gigapascales ($\text{GPa}$).
+* **Momento de inercia ($I_z$):** Centímetros a la cuarta ($\text{cm}^4$).
+* **Esfuerzos ($\sigma, \tau$):** Megapascales ($\text{MPa} = \text{N/mm}^2$).
 
 ---
 
-## 📂 Estructura del Repositorio
+## ⚠️ Alcance Normativo y Descargo de Responsabilidad
 
-```text
-optisteel/
-├── LICENSE                        # Licencia de código abierto MIT
-├── README.md                      # Documentación completa y técnica del proyecto
-├── app.py                         # Aplicación Web interactiva (Streamlit)
-├── app_desktop.py                 # Aplicación de escritorio nativa (Tkinter)
-├── icono.ico                      # Icono empaquetable para Windows (.exe)
-├── icono.png                      # Icono de alta resolución para Web y barra de tareas
-├── perfiles_estructurales.csv     # Base de datos de perfiles (Pytel-Singer Tabla B-2)
-└── requirements.txt               # Dependencias de librerías Python
+> ### 📢 ADVERTENCIA PROFESIONAL
+> **OptiSteel 2.0 es una herramienta científica, didáctica y de prediseño preliminar.**
+>
+> 1. **No sustituye la memoria de cálculo formal:** Los resultados generados no constituyen un proyecto estructural definitivo ni eximen de la revisión y firma por parte de un Ingeniero Civil / Estructural matriculado.
+> 2. **Verificaciones Preliminares Elásticas:** El selector de perfiles implementa comprobaciones elásticas básicas de esfuerzo normal admisible ($\sigma \le \sigma_{\text{adm}}$) y cortante medio en alma ($\tau \le \tau_{\text{adm}}$). No efectúa el diseño completo bajo LRFD ni verifica exhaustivamente estados de pandeo lateral-torsional (PLT), pandeo local de alas/alma, interacciones biaxiales ni combinaciones de carga disgregadas ($1.2D + 1.6L$) según AISC 360 o NSR-10 Título F.
+> 3. **Simetría Seccional:** La formulación de flexión de Navier asume simetría respecto al eje neutro baricéntrico ($c_{\text{sup}} = c_{\text{inf}} = h/2$).
+
+Para una matriz exhaustiva de las cláusulas normativas implementadas y no implementadas, consulte [`docs/engineering/NORMATIVE_SCOPE.md`](./docs/engineering/NORMATIVE_SCOPE.md).
+
+---
+
+## 📚 Documentación Técnica Detallada
+
+* 📐 [Convenciones y Unidades de Ingeniería](./docs/engineering/CONVENTIONS.md)
+* 🏛️ [Modelos Estructurales e Hiperestáticos H1–H4](./docs/engineering/STRUCTURAL_MODELS.md)
+* ⚡ [Módulo de Resistencia de Materiales y ELS](./docs/engineering/MATERIALS_MECHANICS.md)
+* ⚖️ [Alcance Normativo y Matriz AISC / NSR-10 / IBC](./docs/engineering/NORMATIVE_SCOPE.md)
+* 🧩 [Geometría Seccional y Limitaciones](./docs/engineering/CROSS_SECTIONS.md)
+* 📖 [Biblioteca Académica Pytel & Singer](./docs/engineering/PYTEL_SINGER_REFERENCE.md)
+* 🏗️ [Guía de Arquitectura del Monorepo](./docs/architecture/ARCHITECTURE.md)
+* 🛠️ [Guía para Desarrolladores y Contribución](./docs/development/DEVELOPMENT.md)
+* ☁️ [Guía de Despliegue en Cloudflare Pages](./docs/deployment/CLOUDFLARE_PAGES.md)
+
+---
+
+## 📄 Licencia
+
+Este proyecto está distribuido bajo la licencia **MIT**. Consulte el archivo [`LICENSE`](./LICENSE) para mayores detalles.
+Copyright (c) 2026 Mauricio Perdomo.
